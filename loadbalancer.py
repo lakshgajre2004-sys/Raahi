@@ -19,6 +19,15 @@ BACKEND_SERVERS = [
 
 MAX_REQUESTS_PER_SERVER = 4
 
+# --- PERFORMANCE FIX: SESSION SETUP ---
+# Create a global session to keep connections open (Keep-Alive)
+http_session = requests.Session()
+
+# Allow up to 20 simultaneous connections to avoid bottlenecks
+adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+http_session.mount('http://', adapter)
+# --------------------------------------
+
 request_counts = defaultdict(int)
 server_health = {s: True for s in BACKEND_SERVERS}
 current_server_index = 0
@@ -55,7 +64,8 @@ def check_health():
     while True:
         for server in BACKEND_SERVERS:
             try:
-                r = requests.get(f"{server}/api/health", timeout=2)
+                # We can use the session here too for efficiency
+                r = http_session.get(f"{server}/api/health", timeout=2)
                 server_health[server] = r.status_code == 200
             except Exception:
                 server_health[server] = False
@@ -75,14 +85,16 @@ def proxy(path):
     url = f"{backend}/{path}"
 
     try:
+        # --- PERFORMANCE FIX: USE SESSION ---
+        # We use http_session instead of requests to reuse TCP connections
         if request.method == "GET":
-            resp = requests.get(url, params=request.args, timeout=30)
+            resp = http_session.get(url, params=request.args, timeout=5)
         else:
-            resp = requests.request(
+            resp = http_session.request(
                 request.method,
                 url,
                 json=request.get_json(silent=True),
-                timeout=30,
+                timeout=5,
             )
 
         # Return proxied response unchanged (clean)

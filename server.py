@@ -1,9 +1,13 @@
-﻿from flask import Flask, request, jsonify
+﻿import threading
+import time
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from psycopg.rows import dict_row
 import psycopg
+from psycopg_pool import ConnectionPool  # <--- NEW IMPORT
 import random
-import traceback  # Import the traceback module for better error logging
+import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -15,16 +19,32 @@ DB_PASS = "Samehada@1234"
 DB_HOST = "localhost"
 DB_PORT = "5432"
 
+# Construct the connection string once
+DB_CONN_STR = f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
+
+# --- CREATE CONNECTION POOL (Global) ---
+# min_size=4: Always keep 4 connections open and ready
+# max_size=20: Allow up to 20 simultaneous connections during high traffic
+# kwargs={"autocommit": True}: Maintains the behavior of your original code
+try:
+    pool = ConnectionPool(
+        conninfo=DB_CONN_STR,
+        min_size=4,
+        max_size=20,
+        kwargs={"autocommit": True} 
+    )
+    print("✓ Database connection pool established")
+except Exception as e:
+    print(f"CRITICAL: Failed to create connection pool: {e}")
+    raise
 
 def get_db_connection():
-    """Establishes a robust connection to the PostgreSQL database."""
+    """Returns a robust connection from the global pool."""
     try:
-        return psycopg.connect(
-            f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}",
-            autocommit=True
-        )
-    except psycopg.OperationalError as e:
-        print(f"CRITICAL: Database connection failed: {e}")
+        # Get a connection from the pool instead of making a new one
+        return pool.connection()
+    except Exception as e:
+        print(f"CRITICAL: Failed to get connection from pool: {e}")
         raise
 
 
@@ -108,16 +128,25 @@ def update_ride_status(ride_id):
 
                 cur.execute(sql, params)
                 
+                # ... inside update_ride_status ...
                 # --- FIX: Sync Event Status ---
-                # If the driver marks the ride as 'completed', check if it was an event return ride.
                 if new_status == 'completed':
                     cur.execute("SELECT event_booking_id, ride_type FROM rides WHERE id = %s", (ride_id,))
                     ride_info = cur.fetchone()
                     
-                    # If it is a return ride ('event_from'), mark the whole booking as completed
-                    if ride_info and ride_info.get('event_booking_id') and ride_info.get('ride_type') == 'event_from':
-                        cur.execute("UPDATE event_bookings SET ride_status = 'completed' WHERE id = %s", (ride_info['event_booking_id'],))
-                        print(f"✅ Auto-completed event booking #{ride_info['event_booking_id']}")
+                    if ride_info and ride_info.get('event_booking_id'):
+                        booking_id = ride_info['event_booking_id']
+                        rtype = ride_info['ride_type']
+                        
+                        # Case 1: Driver dropped user AT the event
+                        if rtype == 'event_to':
+                             cur.execute("UPDATE event_bookings SET ride_status = 'at_event' WHERE id = %s", (booking_id,))
+                             print(f"✅ User arrived at event #{booking_id}")
+
+                        # Case 2: Driver dropped user back HOME
+                        elif rtype == 'event_from':
+                            cur.execute("UPDATE event_bookings SET ride_status = 'completed' WHERE id = %s", (booking_id,))
+                            print(f"✅ Auto-completed event booking #{booking_id}")
                 # ------------------------------
 
                 conn.commit()
@@ -267,27 +296,40 @@ def get_user_rides(user_id):
 # --- Available Rides Endpoint (single, fixed implementation) ---
 @app.route('/api/rides/available', methods=['GET'])
 def get_available_rides():
-    """Get all rides available for drivers (includes event rides)"""
+    """Get rides available for specific driver (excludes skipped ones)"""
+    driver_id = request.args.get('driver_id') # Driver sends their ID now
+    
     try:
         with get_db_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("""
-                    SELECT * FROM rides 
-                    WHERE status IN ('requested', 'waiting', 'event_to', 'event_from')
-                    ORDER BY created_at ASC;
-                """)
+                # Query: Get requested rides that THIS driver hasn't skipped
+                query = """
+                    SELECT r.* FROM rides r
+                    WHERE r.status = 'requested'
+                """
+                params = []
+                
+                if driver_id:
+                    query += """ 
+                        AND NOT EXISTS (
+                            SELECT 1 FROM ride_skips s 
+                            WHERE s.ride_id = r.id AND s.driver_id = %s
+                        )
+                    """
+                    params.append(driver_id)
+                    
+                query += " ORDER BY r.created_at ASC;"
+                
+                cur.execute(query, params)
                 rides = cur.fetchall()
 
-                # Normalize timestamps for JSON
                 for r in rides:
                     if r.get('created_at'):
                         r['created_at'] = r['created_at'].isoformat()
 
-        print(f"ðŸ“‹ Available rides in queue: {len(rides)}")
         return jsonify({'success': True, 'data': rides})
     except Exception as e:
         print("Error in get_available_rides:", e)
-        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -553,7 +595,7 @@ def book_event():
                         INSERT INTO rides 
                         (user_id, source_location, dest_location, status, fare, 
                          ride_type, event_booking_id)
-                        VALUES (%s, %s, %s, 'requested', %s, 'event_to', %s)
+                        VALUES (%s, %s, %s, 'scheduled', %s, 'event_to', %s)
 
                         RETURNING id
                     """, (user_id, pickup_location, event_location, fare, booking_id))
@@ -717,7 +759,7 @@ def mark_event_complete(booking_id):
                         INSERT INTO rides 
                         (user_id, source_location, dest_location, status, fare, 
                          ride_type, event_booking_id)
-                        VALUES (%s, %s, %s, 'waiting', %s, 'event_from', %s)
+                        VALUES (%s, %s, %s, 'requested', %s, 'event_from', %s)
                         RETURNING id
                     """, (user_id, event_location, pickup_location, fare, booking_id))
 
@@ -897,6 +939,58 @@ def get_active_ride(driver_id):
 
     except Exception as e:
         print(f"Error in get_active_ride: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+# --- BACKGROUND TASK: AUTO-CANCEL OLD RIDES ---
+def monitor_ride_timeouts():
+    """Checks every 5 seconds for rides older than 60 seconds"""
+    while True:
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    # Find rides that are 'requested' and older than 60 seconds
+                    # We update them to 'cancelled_no_drivers'
+                    cur.execute("""
+                        UPDATE rides 
+                        SET status = 'cancelled_no_drivers' 
+                        WHERE status = 'requested' 
+                        AND created_at < NOW() - INTERVAL '60 seconds'
+                    """)
+                    if cur.rowcount > 0:
+                        print(f"⏰ Auto-cancelled {cur.rowcount} rides due to timeout")
+        except Exception as e:
+            print(f"Timeout monitor error: {e}")
+        time.sleep(5)
+
+# Start the background thread
+threading.Thread(target=monitor_ride_timeouts, daemon=True).start()
+
+@app.route('/api/rides/<int:ride_id>/skip', methods=['POST'])
+def skip_ride(ride_id):
+    try:
+        data = request.get_json()
+        driver_id = data.get('driver_id')
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. SECURITY CHECK: Is this an event ride?
+                cur.execute("SELECT ride_type FROM rides WHERE id = %s", (ride_id,))
+                result = cur.fetchone()
+                
+                # If it is 'event_to' or 'event_from', BLOCK the skip
+                if result and result[0] in ['event_to', 'event_from']:
+                     print(f"⚠️ Driver {driver_id} tried to skip mandatory event ride {ride_id}. Blocked.")
+                     return jsonify({'success': False, 'error': 'Event rides are mandatory and cannot be skipped.'}), 400
+
+                # 2. If regular ride, allow skip
+                cur.execute("""
+                    INSERT INTO ride_skips (ride_id, driver_id) 
+                    VALUES (%s, %s) 
+                    ON CONFLICT DO NOTHING
+                """, (ride_id, driver_id))
+        
+        return jsonify({'success': True, 'message': 'Ride skipped'})
+    except Exception as e:
+        print(f"Error skipping ride: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':

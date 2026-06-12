@@ -877,19 +877,11 @@ DRIVER_DASHBOARD_HTML = '''
             </div>
             <div class="auth-content">
                 <div class="auth-tabs">
-                    <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
-                    <button class="auth-tab" onclick="switchTab('register')">Sign Up</button>
+                    <button class="auth-tab active" onclick="switchTab('register')">Sign Up</button>
+                    <button class="auth-tab" onclick="switchTab('login')">Sign In</button>
                 </div>
 
-                <form id="login-form" class="auth-form active" onsubmit="login(event)">
-                    <div class="form-group">
-                        <label>Driver ID</label>
-                        <input type="number" id="loginDriverId" placeholder="Enter your driver ID" required>
-                    </div>
-                    <button type="submit" class="btn">Sign In 🚗</button>
-                </form>
-
-                <form id="register-form" class="auth-form" onsubmit="registerDriver(event)">
+                <form id="register-form" class="auth-form active" onsubmit="registerDriver(event)">
                     <div class="form-group">
                         <label>Full Name</label>
                         <input type="text" id="regName" placeholder="Enter your full name" required>
@@ -903,6 +895,14 @@ DRIVER_DASHBOARD_HTML = '''
                         <input type="text" id="regVehicle" placeholder="e.g., Maruti Swift (KA-01-AB-1234)" required>
                     </div>
                     <button type="submit" class="btn" id="registerBtn">Create Account 🚀</button>
+                </form>
+
+                <form id="login-form" class="auth-form" onsubmit="login(event)">
+                    <div class="form-group">
+                        <label>Driver ID</label>
+                        <input type="number" id="loginDriverId" placeholder="Enter your driver ID" required>
+                    </div>
+                    <button type="submit" class="btn">Sign In 🚗</button>
                 </form>
             </div>
         </div>
@@ -976,7 +976,7 @@ DRIVER_DASHBOARD_HTML = '''
     <script>
         let currentDriverId = null;
         let currentDriverName = null;
-        let queueRefreshInterval = null;
+        let queueRefreshTimeout = null;
         let currentRideFare = 0;
         
 
@@ -984,12 +984,14 @@ DRIVER_DASHBOARD_HTML = '''
             document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
 
-            if (tab === 'login') {
+            if (tab === 'register') {
+                // Left Tab (Index 0) is now Register
                 document.querySelectorAll('.auth-tab')[0].classList.add('active');
-                document.getElementById('login-form').classList.add('active');
-            } else {
-                document.querySelectorAll('.auth-tab')[1].classList.add('active');
                 document.getElementById('register-form').classList.add('active');
+            } else {
+                // Right Tab (Index 1) is now Login
+                document.querySelectorAll('.auth-tab')[1].classList.add('active');
+                document.getElementById('login-form').classList.add('active');
             }
         }
 
@@ -1103,21 +1105,37 @@ DRIVER_DASHBOARD_HTML = '''
         }
 
         function startQueueAutoRefresh() {
-            if (queueRefreshInterval) clearInterval(queueRefreshInterval);
+    // 1. Clear any existing timeout to prevent duplicates
+    if (queueRefreshTimeout) clearTimeout(queueRefreshTimeout);
 
-            console.log('🔄 Starting auto-refresh for SINGLE next ride...');
-            loadNextRide();
-            queueRefreshInterval = setInterval(() => {
-                loadNextRide();
-            }, 2000); // Check every 2 seconds
+    console.log('🔄 Starting snappy auto-refresh...');
+
+    // 2. Define the recursive loop
+    const checkLoop = async () => {
+        // Safety check: Stop if we went offline
+        if (!document.getElementById('onlineToggle').checked) return;
+
+        // Wait for the request to actually finish
+        await loadNextRide();
+
+        // 3. Recursive Call: Schedule the NEXT check only after this one is done
+        // This prevents the "traffic jam" in your network tab
+        if (document.getElementById('onlineToggle').checked) {
+            queueRefreshTimeout = setTimeout(checkLoop, 2000);
         }
+    };
+
+    // 4. Kick off the loop
+    checkLoop();
+}
 
         function stopQueueAutoRefresh() {
-            if (queueRefreshInterval) {
-                clearInterval(queueRefreshInterval);
-                queueRefreshInterval = null;
-            }
-        }
+    if (queueRefreshTimeout) {
+        clearTimeout(queueRefreshTimeout); // Changed from clearInterval
+        queueRefreshTimeout = null;
+        console.log('⏸️ Auto-refresh stopped');
+    }
+}
 
         async function checkActiveRide() {
             if (!currentDriverId) return;
@@ -1213,10 +1231,9 @@ DRIVER_DASHBOARD_HTML = '''
             const contentDiv = document.getElementById('next-ride-content');
 
             try {
-                const response = await fetch('/api/driver/rides/available');
+                // Fetch queue
+                const response = await fetch(`/api/driver/rides/available?driver_id=${currentDriverId}`);
                 const data = await response.json();
-
-                console.log('📋 Queue response:', data);
 
                 if (!data.success || !data.data || data.data.length === 0) {
                     contentDiv.innerHTML = '<div class="empty-state"><div class="empty-icon">🚕</div><p>No rides waiting in queue<br><small style="font-size:13px;">Requests will appear here automatically</small></p></div>';
@@ -1225,21 +1242,70 @@ DRIVER_DASHBOARD_HTML = '''
 
                 // Show ONLY the first ride
                 const nextRide = data.data[0];
-                console.log('🚗 Showing first ride:', nextRide);
+                
+                // --- NEW LOGIC: Check if it's an Event Ride ---
+                const isEventRide = ['event_to', 'event_from'].includes(nextRide.ride_type);
+
+                let badgeHtml = '<div class="ride-badge">🔥 Next in Queue</div>';
+                let actionButtons = '';
+
+                if (isEventRide) {
+                    // OPTION A: Event Ride (No Skip Button)
+                    badgeHtml = '<div class="ride-badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00;">⭐ Priority Event Ride</div>';
+                    actionButtons = `
+                         <div style="margin-bottom: 15px; padding: 12px; background: rgba(255, 204, 0, 0.1); border: 1px solid rgba(255, 204, 0, 0.3); border-radius: 8px; font-size: 13px; color: #ffcc00; text-align: center; line-height: 1.4;">
+                            ⚠️ <strong>Mandatory Ride</strong><br>This is a scheduled event trip and cannot be skipped.
+                        </div>
+                        <button class="ride-btn accept-btn" onclick="acceptRide(${nextRide.id})">
+                            ✅ Accept Event Ride
+                        </button>
+                    `;
+                } else {
+                    // OPTION B: Regular Ride (Has Skip Button)
+                    actionButtons = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <button class="ride-btn" 
+                                style="background: rgba(255, 59, 48, 0.2); color: #ff3b30; border: 1px solid rgba(255, 59, 48, 0.3);" 
+                                onclick="skipRide(${nextRide.id})">
+                                🚫 Pass
+                            </button>
+                            <button class="ride-btn accept-btn" onclick="acceptRide(${nextRide.id})">
+                                ✅ Accept
+                            </button>
+                        </div>
+                    `;
+                }
 
                 contentDiv.innerHTML = `
                     <div class="next-ride-card">
-                        <div class="ride-badge">🔥 Next in Queue</div>
+                        ${badgeHtml}
                         <div class="ride-detail"><strong>📍 From:</strong> ${nextRide.source_location}</div>
                         <div class="ride-detail"><strong>🎯 To:</strong> ${nextRide.dest_location}</div>
                         <div class="ride-detail"><strong>👤 User:</strong> #${nextRide.user_id}</div>
                         <div class="ride-fare-big">💰 ₹${nextRide.fare}</div>
-                        <button class="ride-btn accept-btn" onclick="acceptRide(${nextRide.id})">✅ Accept This Ride</button>
+                        
+                        ${actionButtons}
                     </div>
                 `;
             } catch (error) {
                 contentDiv.innerHTML = '<p style="color: #ff3b30; text-align:center;">❌ Could not connect to server</p>';
                 console.error('Error:', error);
+            }
+        }
+
+        async function skipRide(rideId) {
+            try {
+                // Call the proxy endpoint to skip
+                const response = await fetch(`/api/driver/rides/${rideId}/skip`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driver_id: parseInt(currentDriverId) })
+                });
+                
+                // Immediately refresh the queue to show the next ride (or empty state)
+                loadNextRide(); 
+            } catch (error) {
+                console.error("Skip failed", error);
             }
         }
 
@@ -1325,7 +1391,8 @@ def proxy_update_driver_status(driver_id):
 @app.route('/api/driver/rides/available', methods=['GET'])
 def proxy_get_available_rides():
     try:
-        res = requests.get(f'{SERVER_URL}/api/rides/available')
+        # UPDATE: pass params=request.args to forward the driver_id
+        res = requests.get(f'{SERVER_URL}/api/rides/available', params=request.args) 
         return jsonify(res.json()), res.status_code
     except Exception as e:
         print(f"Proxy error: {e}")
@@ -1353,6 +1420,15 @@ def proxy_get_active_ride(driver_id):
 def proxy_get_completed_rides(driver_id):
     try:
         res = requests.get(f'{SERVER_URL}/api/drivers/{driver_id}/completed-rides')
+        return jsonify(res.json()), res.status_code
+    except Exception as e:
+        print(f"Proxy error: {e}")
+        return jsonify({'success': False, 'error': 'Server connection failed'}), 503
+
+@app.route('/api/driver/rides/<int:ride_id>/skip', methods=['POST'])
+def proxy_skip_ride(ride_id):
+    try:
+        res = requests.post(f'{SERVER_URL}/api/rides/{ride_id}/skip', json=request.get_json())
         return jsonify(res.json()), res.status_code
     except Exception as e:
         print(f"Proxy error: {e}")

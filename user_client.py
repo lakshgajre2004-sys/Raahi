@@ -1360,7 +1360,7 @@ USER_DASHBOARD_HTML = '''
       <script>
   let currentUserId = null;
   let currentUserName = null;
-  let statusCheckInterval = null;
+  let statusCheckTimeout = null;
   let currentRideId = null;
 
   // Helper to handle responses safely (JSON or non-JSON)
@@ -1642,11 +1642,37 @@ USER_DASHBOARD_HTML = '''
               <button onclick="bookAnotherRide()" class="btn" style="margin-top: 20px;">Book Another Ride 🚀</button>
           </div>
       `;
+    } 
+    // --- NEW BLOCK: Handle No Drivers Found ---
+    else if (status === 'cancelled_no_drivers') {
+      content = `
+          <div class="ride-status-tracker">
+              <div class="status-icon-large" style="font-size: 60px;">😢</div>
+              <div class="status-title" style="color: #ff3b30;">No Drivers Nearby</div>
+              <div class="status-message">
+                  We couldn't find a driver for you within 1 minute.<br>
+                  Please try requesting again.
+              </div>
+              <div class="ride-details">
+                  <div class="ride-detail-row">
+                      <span class="ride-detail-label">📍 Pickup</span>
+                      <span class="ride-detail-value">${rideData.source}</span>
+                  </div>
+                  <div class="ride-detail-row">
+                      <span class="ride-detail-label">🎯 Destination</span>
+                      <span class="ride-detail-value">${rideData.destination}</span>
+                  </div>
+              </div>
+              <button onclick="bookAnotherRide()" class="btn" style="margin-top: 20px; background: #333;">Try Again ↻</button>
+          </div>
+      `;
+      // Stop the polling since the ride is essentially dead
+      if (statusCheckTimeout) clearTimeout(statusCheckTimeout);
+      currentRideId = null; 
     }
 
     tracker.innerHTML = content;
-  }
-
+}
   function bookAnotherRide() {
     document.getElementById('rideStatusTracker').style.display = 'none';
     document.getElementById('rideRequestForm').style.display = 'block';
@@ -1657,43 +1683,50 @@ USER_DASHBOARD_HTML = '''
     currentRideId = null;
   }
 
-  function startStatusCheck(rideId) {
-    if (statusCheckInterval) clearInterval(statusCheckInterval);
+function startStatusCheck(rideId) {
+    // 1. Clear any existing timeout to prevent duplicates
+    if (statusCheckTimeout) clearTimeout(statusCheckTimeout);
 
-    statusCheckInterval = setInterval(async () => {
-  try {
-    const response = await fetch(`/api/user/ride-status/${rideId}`);
-    const data = await handleResponse(response);
+    // 2. Define the checking logic
+    const checkLoop = async () => {
+        // Safety: Stop if we logged out or switched rides
+        if (!currentRideId || currentRideId !== rideId) return;
 
-    if (data.success && data.data) {
-      // normalize: backend might return object or array
-      let ride = data.data;
-      if (Array.isArray(ride)) ride = ride[0];
-      if (!ride) return;
+        try {
+            const response = await fetch(`/api/user/ride-status/${rideId}`);
+            const data = await handleResponse(response);
 
-      if (ride.status !== 'requested') {
-        displayRideStatus(ride.status, {
-          source: ride.source_location,
-          destination: ride.dest_location,
-          fare: ride.fare,
-          driverId: ride.driver_id,
-          driverName: ride.driver_name
-        });
-      }
+            if (data.success && data.data) {
+                let ride = data.data;
+                if (Array.isArray(ride)) ride = ride[0];
 
-      if (ride.status === 'completed') {
-        clearInterval(statusCheckInterval);
-        statusCheckInterval = null;
-        currentRideId = null;
-        loadMyRides();
-      }
-    }
-  } catch (error) {
-    console.error('Error checking status:', error);
-  }
-}, 2000);
- // Check every 2 seconds
-  }
+                if (ride && ride.status !== 'requested') {
+                    displayRideStatus(ride.status, {
+                        source: ride.source_location,
+                        destination: ride.dest_location,
+                        fare: ride.fare,
+                        driverId: ride.driver_id,
+                        driverName: ride.driver_name
+                    });
+                }
+
+                if (ride && ride.status === 'completed') {
+                    currentRideId = null;
+                    loadMyRides();
+                    return; // STOP RECURSION here
+                }
+            }
+        } catch (error) {
+            console.error('Status check error:', error);
+        }
+
+        // 3. RECURSIVE CALL: Only schedule the NEXT check after this one finishes
+        statusCheckTimeout = setTimeout(checkLoop, 2000);
+    };
+
+    // 4. Start the loop
+    checkLoop();
+}
 
   async function checkForActiveRide() {
     try {
@@ -1919,8 +1952,9 @@ USER_DASHBOARD_HTML = '''
         return;
       }
 
+      // 1. UPDATE FILTER: Added 'at_event' so the card stays visible after drop-off
       const scheduled = data.data.filter(b =>
-        b.with_ride && ['scheduled', 'to_event', 'from_event'].includes(b.ride_status)
+        b.with_ride && ['scheduled', 'to_event', 'at_event', 'from_event'].includes(b.ride_status)
       );
 
       if (scheduled.length === 0) {
@@ -1932,14 +1966,26 @@ USER_DASHBOARD_HTML = '''
         let actionButton = '';
         let statusText = '';
 
+        // 2. LOGIC UPDATE: Handle states specifically
         if (booking.ride_status === 'scheduled') {
+          // State: Ride booked, not started
           statusText = '🕒 Ride Scheduled';
           actionButton = `<button class="action-btn" onclick="startEventRide(${booking.id})">🚗 Start Ride to Event</button>`;
+        
         } else if (booking.ride_status === 'to_event') {
-          statusText = '🚗 On way to event...';
-          actionButton = `<button class="action-btn secondary" onclick="markEventComplete(${booking.id})">✓ Mark Event Complete</button>`;
+          // State: In the car (BUTTON HIDDEN)
+          statusText = '🚖 On way to event...';
+          actionButton = `<div style="padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; font-size: 13px; opacity: 0.7; text-align: center;">Wait for drop-off to book return 🛑</div>`;
+        
+        } else if (booking.ride_status === 'at_event') {
+          // State: Dropped off (BUTTON APPEARS)
+          statusText = '📍 You are at the Event';
+          actionButton = `<button class="action-btn secondary" onclick="markEventComplete(${booking.id})">🏠 Request Return Ride</button>`;
+        
         } else if (booking.ride_status === 'from_event') {
+          // State: Going home
           statusText = '🏠 Return ride in progress...';
+          actionButton = `<div style="font-size: 13px; color: #4cd964;">Have a safe journey home!</div>`;
         }
 
         return `
