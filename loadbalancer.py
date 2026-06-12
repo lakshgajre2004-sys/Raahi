@@ -4,7 +4,6 @@ import requests
 import threading
 import time
 from collections import defaultdict
-import json
 
 app = Flask(__name__)
 CORS(app)
@@ -37,7 +36,7 @@ def get_next_server():
     with lock:
         backend = BACKEND_SERVERS[current_server_index]
 
-        # Rotate after 4 requests
+        # Rotate after configured number of requests
         if request_counts[backend] >= MAX_REQUESTS_PER_SERVER:
             request_counts[backend] = 0
             current_server_index = (current_server_index + 1) % len(BACKEND_SERVERS)
@@ -58,7 +57,7 @@ def check_health():
             try:
                 r = requests.get(f"{server}/api/health", timeout=2)
                 server_health[server] = r.status_code == 200
-            except:
+            except Exception:
                 server_health[server] = False
         time.sleep(5)
 
@@ -86,25 +85,8 @@ def proxy(path):
                 timeout=30,
             )
 
-        # Build response headers
-        headers = dict(resp.headers)
-        headers["X-Backend-Server"] = backend
-
-        # Default body
-        body = resp.content
-
-        # If JSON, add served_by
-        if "application/json" in resp.headers.get("Content-Type", "").lower():
-            try:
-                parsed = resp.json()
-                if isinstance(parsed, dict):
-                    parsed["served_by"] = backend
-                    body = json.dumps(parsed).encode("utf-8")
-                    headers["Content-Length"] = str(len(body))
-            except:
-                pass
-
-        return body, resp.status_code, headers
+        # Return proxied response unchanged (clean)
+        return resp.content, resp.status_code, dict(resp.headers)
 
     except Exception as e:
         return jsonify({
@@ -135,24 +117,13 @@ def lb_status():
         ]
     })
 
-# Debug helper: reset LB counters without restarting (POST /lb/reset)
-@app.route('/lb/reset', methods=['POST'])
-def lb_reset():
-    global request_counts, current_server_index, total_requests
-    with lock:
-        request_counts = defaultdict(int)
-        current_server_index = 0
-        total_requests = 0
-    return jsonify({'success': True, 'message': 'load balancer counters reset'}), 200
-
-
 
 # ============================
 # RUN SERVER
 # ============================
 if __name__ == "__main__":
     print("=" * 70)
-    print("⚡ FIXED LOAD BALANCER (Every 4 Requests)")
+    print("⚡ CLEAN LOAD BALANCER (Every {} Requests)".format(MAX_REQUESTS_PER_SERVER))
     print("=" * 70)
     print("Running on http://localhost:8090")
     print("Backends:")
