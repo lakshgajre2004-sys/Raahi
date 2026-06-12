@@ -4,11 +4,15 @@ import requests
 import sys
 import os
 import json
+import logging
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
-# Allow overriding upstream server with env var for convenience
+# configure logging to show time + level
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+
 SERVER_URL = os.environ.get("RAAHI_SERVER_URL", "http://localhost:8090")
 
 USER_DASHBOARD_HTML = '''
@@ -2136,190 +2140,201 @@ async function markEventComplete(bookingId) {
 </body>
 </html>
 '''
-
+def log_forward(name, method, url, payload, resp):
+    logging.debug(f"--- {name} ---")
+    logging.debug(f"{method} {url}")
+    logging.debug(f"Payload forwarded: {json.dumps(payload, default=str) if payload is not None else None}")
+    logging.debug(f"Upstream status: {resp.status_code}")
+    # Log up to first 2000 chars to avoid huge logs
+    text_preview = resp.text[:2000]
+    logging.debug(f"Upstream body (truncated 2000 chars): {text_preview!r}")
+    logging.debug("--- end ---")
 
 def forward_response(resp):
     """
-    Forward requests.Response 'resp' to the client.
-    If backend sent valid JSON -> respond with that JSON + same status code.
-    Otherwise forward raw text with original content-type and status code.
+    Forward requests.Response to client.
+    If response contains JSON -> return jsonify
+    Else forward raw body with same content-type and status code.
     """
+    content_type = resp.headers.get("Content-Type", "text/plain")
     try:
-        # Try to decode JSON
         body = resp.json()
         return jsonify(body), resp.status_code
     except ValueError:
-        # Non-JSON (HTML/text/etc.) — forward raw
-        content_type = resp.headers.get("Content-Type", "text/plain")
+        # Forward raw (HTML/text)
         return Response(resp.text, status=resp.status_code, content_type=content_type)
 
 def safe_get_json(req):
-    """Get JSON from incoming request without throwing."""
     try:
         payload = req.get_json(silent=True)
     except Exception:
         payload = None
     return payload or {}
 
-# ---------------- Basic routes ----------------
-
 @app.route('/')
 def home():
     return render_template_string(USER_DASHBOARD_HTML)
 
-# ------------- User / Ride Proxies --------------
+# --- Debug endpoint to check upstream behavior quickly ---
+@app.route('/debug/upstream-check', methods=['GET'])
+def debug_upstream_check():
+    """
+    Call a set of important upstream endpoints and return a structured summary.
+    Useful to quickly debug which upstream endpoints exist and what they return.
+    """
+    results = {}
+    checks = [
+        ("GET events", "GET", f"{SERVER_URL}/api/events", None),
+        ("POST events/book (sample)", "POST", f"{SERVER_URL}/api/events/book",
+         {"user_id": 1, "event_id": 1, "num_tickets": 1, "with_ride": False}),
+        ("GET ride 3", "GET", f"{SERVER_URL}/api/rides/3", None),
+        ("GET user 104 rides", "GET", f"{SERVER_URL}/api/users/104/rides", None),
+        ("GET event-bookings 3", "GET", f"{SERVER_URL}/api/event-bookings/3", None),
+    ]
 
-@app.route('/api/user/register', methods=['POST'])
+    for name, method, url, payload in checks:
+        try:
+            if method == "GET":
+                r = requests.get(url, timeout=5)
+            else:
+                r = requests.post(url, json=payload, timeout=5)
+            log_forward(name, method, url, payload, r)
+            # attempt to parse JSON for structured output
+            try:
+                body = r.json()
+            except Exception:
+                body = r.text[:1000]
+            results[name] = {"status": r.status_code, "body": body}
+        except requests.exceptions.RequestException as e:
+            logging.exception(f"Upstream check failed for {name}")
+            results[name] = {"error": str(e)}
+    return jsonify({"checked_at": datetime.utcnow().isoformat() + "Z", "server": SERVER_URL, "results": results})
+
+# --- Proxies (with logging) ---
+@app.route('/api/users/register', methods=['POST'])
 def proxy_register_user():
     try:
-        payload = safe_get_json(request)
-        resp = requests.post(f'{SERVER_URL}/api/users/register', json=payload, timeout=5)
-        return forward_response(resp)
-    except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (register user)")
-        return jsonify({'success': False, 'error': 'Server connection failed', 'detail': str(e)}), 503
+        response = requests.post(
+            f'{SERVER_URL}/api/users/register',
+            json=request.get_json(),
+            timeout=5
+        )
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        print("Proxy error (register user):", e)
+        return jsonify({'success': False, 'error': 'Server connection failed'}), 503
 
 @app.route('/api/user/request-ride-queue', methods=['POST'])
 def proxy_request_ride_queue():
+    payload = safe_get_json(request)
+    url = f"{SERVER_URL}/api/rides/request-with-queue"
     try:
-        payload = safe_get_json(request)
-        resp = requests.post(f'{SERVER_URL}/api/rides/request-with-queue', json=payload, timeout=5)
-        return forward_response(resp)
+        r = requests.post(url, json=payload, timeout=6)
+        log_forward("request_ride_queue", "POST", url, payload, r)
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (request ride)")
+        logging.exception("proxy_request_ride_queue failed")
         return jsonify({'success': False, 'error': 'Server connection failed', 'detail': str(e)}), 503
 
 @app.route('/api/user/ride-status/<int:ride_id>', methods=['GET'])
 def proxy_ride_status(ride_id):
-    """
-    Primary behaviour:
-      1. Try GET /api/rides/{ride_id} on upstream (treat ride_id as ride id).
-      2. If upstream returns 404 / "Ride not found" -> try treating the id as user_id:
-           GET /api/users/{ride_id}/rides and return the first active/most recent ride (if any).
-      3. Otherwise forward original response.
-    This helps when the frontend sometimes passes a user id instead of a ride id.
-    """
+    # Try as ride id first
+    url_ride = f"{SERVER_URL}/api/rides/{ride_id}"
     try:
-        # 1) Try as ride id
-        resp = requests.get(f'{SERVER_URL}/api/rides/{ride_id}', timeout=5)
-        if resp.status_code == 200:
-            return forward_response(resp)
-
-        # if backend says 404 / ride not found, attempt as user id
-        # inspect JSON body if available
+        r = requests.get(url_ride, timeout=5)
+        log_forward("ride_status_try_ride", "GET", url_ride, None, r)
+        if r.status_code == 200:
+            return forward_response(r)
+        # inspect returned body to decide fallback
         try:
-            body = resp.json()
-            backend_error = body.get('error') or body.get('message') or ''
+            body = r.json()
+            err = (body.get("error") or body.get("message") or "").lower()
         except Exception:
-            backend_error = None
-
-        if resp.status_code in (404, ) or (backend_error and 'ride not found' in backend_error.lower()):
-            # 2) treat ride_id as user_id and lookup user's rides
-            try:
-                user_resp = requests.get(f'{SERVER_URL}/api/users/{ride_id}/rides', timeout=5)
-            except requests.exceptions.RequestException as e:
-                app.logger.exception("Proxy error trying user rides fallback")
-                return jsonify({'success': False, 'error': 'Server connection failed', 'detail': str(e)}), 503
-
-            # If user_resp is OK and contains data, try to return an active ride
-            if user_resp.status_code == 200:
+            err = ""
+        if r.status_code == 404 or "ride not found" in err:
+            # fallback: try as user_id
+            url_user = f"{SERVER_URL}/api/users/{ride_id}/rides"
+            ru = requests.get(url_user, timeout=5)
+            log_forward("ride_status_try_user_fallback", "GET", url_user, None, ru)
+            if ru.status_code == 200:
                 try:
-                    ur_body = user_resp.json()
-                    rides = ur_body.get('data')
+                    ub = ru.json()
+                    rides = ub.get("data")
                 except Exception:
                     rides = None
-
-                if isinstance(rides, dict):
-                    # backend returned single ride object
-                    return jsonify({'success': True, 'data': rides}), 200
-                elif isinstance(rides, list) and len(rides) > 0:
-                    # prefer active ride statuses
-                    active = next((r for r in rides if r.get('status') in ('requested', 'accepted', 'in_progress')), None)
+                # choose the first active ride or the first in list
+                if isinstance(rides, list) and rides:
+                    active = next((x for x in rides if x.get("status") in ("requested", "accepted", "in_progress")), None)
                     chosen = active or rides[0]
-                    return jsonify({'success': True, 'data': chosen}), 200
+                    return jsonify({"success": True, "data": chosen}), 200
+                elif isinstance(rides, dict) and rides:
+                    return jsonify({"success": True, "data": rides}), 200
                 else:
-                    return jsonify({'success': False, 'error': 'Ride not found'}), 404
+                    return jsonify({"success": False, "error": "Ride not found"}), 404
             else:
-                # upstream user rides returned non-200 — forward that
-                return forward_response(user_resp)
-
-        # Otherwise just forward the original resp (404 or other code)
-        return forward_response(resp)
-
+                return forward_response(ru)
+        # otherwise just forward original response
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (ride status)")
+        logging.exception("proxy_ride_status failed")
         return jsonify({'success': False, 'error': 'Server connection failed', 'detail': str(e)}), 503
 
 @app.route('/api/user/rides/<int:user_id>', methods=['GET'])
 def proxy_user_rides(user_id):
+    url = f"{SERVER_URL}/api/users/{user_id}/rides"
     try:
-        resp = requests.get(f'{SERVER_URL}/api/users/{user_id}/rides', timeout=5)
-        return forward_response(resp)
+        r = requests.get(url, timeout=5)
+        log_forward("user_rides", "GET", url, None, r)
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (user rides)")
+        logging.exception("proxy_user_rides failed")
         return jsonify({'success': False, 'error': 'Server connection failed', 'detail': str(e)}), 503
-
-# ------------- Events & Bookings --------------
-
-@app.route("/api/events", methods=["GET"])
-def proxy_get_events():
-    try:
-        resp = requests.get(f"{SERVER_URL}/api/events", timeout=5)
-        return forward_response(resp)
-    except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (get events)")
-        return jsonify({"success": False, "error": "Server connection failed", 'detail': str(e)}), 503
-
-@app.route("/api/events/book", methods=["POST"])
-def proxy_book_event():
-    try:
-        payload = safe_get_json(request)
-        resp = requests.post(f"{SERVER_URL}/api/events/book", json=payload, timeout=5)
-        return forward_response(resp)
-    except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (book event)")
-        return jsonify({"success": False, "error": "Server connection failed", 'detail': str(e)}), 503
 
 @app.route("/api/users/<int:user_id>/event-bookings", methods=["GET"])
 def proxy_get_user_bookings(user_id):
+    url = f"{SERVER_URL}/api/users/{user_id}/event-bookings"
     try:
-        resp = requests.get(f"{SERVER_URL}/api/users/{user_id}/event-bookings", timeout=5)
-        return forward_response(resp)
+        r = requests.get(url, timeout=5)
+        log_forward("get_user_bookings", "GET", url, None, r)
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (get user bookings)")
+        logging.exception("proxy_get_user_bookings failed")
         return jsonify({"success": False, "error": "Server connection failed", 'detail': str(e)}), 503
 
 @app.route("/api/event-bookings/<int:booking_id>/start-ride", methods=["POST"])
 def proxy_start_event_ride(booking_id):
+    payload = safe_get_json(request)
+    url = f"{SERVER_URL}/api/event-bookings/{booking_id}/start-ride"
     try:
-        payload = safe_get_json(request)
-        resp = requests.post(f"{SERVER_URL}/api/event-bookings/{booking_id}/start-ride", json=payload, timeout=5)
-        return forward_response(resp)
+        r = requests.post(url, json=payload, timeout=6)
+        log_forward("start_event_ride", "POST", url, payload, r)
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (start_event_ride)")
+        logging.exception("proxy_start_event_ride failed")
         return jsonify({"success": False, "error": "Server connection failed", 'detail': str(e)}), 503
 
 @app.route("/api/event-bookings/<int:booking_id>/mark-complete", methods=["POST"])
 def proxy_mark_event_complete(booking_id):
+    payload = safe_get_json(request)
+    url = f"{SERVER_URL}/api/event-bookings/{booking_id}/mark-complete"
     try:
-        payload = safe_get_json(request)
-        resp = requests.post(f"{SERVER_URL}/api/event-bookings/{booking_id}/mark-complete", json=payload, timeout=5)
-        return forward_response(resp)
+        r = requests.post(url, json=payload, timeout=6)
+        log_forward("mark_event_complete", "POST", url, payload, r)
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (mark_event_complete)")
+        logging.exception("proxy_mark_event_complete failed")
         return jsonify({"success": False, "error": "Server connection failed", 'detail': str(e)}), 503
 
-# ----- new: proxy GET for a single event-booking (you tried this earlier) -----
 @app.route("/api/event-bookings/<int:booking_id>", methods=["GET"])
 def proxy_get_event_booking(booking_id):
+    url = f"{SERVER_URL}/api/event-bookings/{booking_id}"
     try:
-        resp = requests.get(f"{SERVER_URL}/api/event-bookings/{booking_id}", timeout=5)
-        return forward_response(resp)
+        r = requests.get(url, timeout=5)
+        log_forward("get_event_booking", "GET", url, None, r)
+        return forward_response(r)
     except requests.exceptions.RequestException as e:
-        app.logger.exception("Proxy error (get_event_booking)")
+        logging.exception("proxy_get_event_booking failed")
         return jsonify({"success": False, "error": "Server connection failed", 'detail': str(e)}), 503
-
-# ------------------- RUN SERVER -------------------
 
 if __name__ == '__main__':
     port = 5000
@@ -2328,8 +2343,5 @@ if __name__ == '__main__':
             port = int(sys.argv[1])
         except ValueError:
             sys.exit("Error: Invalid port number provided.")
-
-    print(f'🚗 Raahi User Client running at http://localhost:{port}')
-    print(f'🗺️  Using FREE OpenStreetMap (No API Key Required!)')
-    print(f'Connecting to server at {SERVER_URL}')
+    logging.info(f"Starting proxy on http://0.0.0.0:{port} -> upstream {SERVER_URL}")
     app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)

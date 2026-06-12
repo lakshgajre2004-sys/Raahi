@@ -5,7 +5,7 @@ import requests
 app = Flask(__name__)
 CORS(app)
 
-SERVER_URL = 'http://localhost:8080'
+SERVER_URL = 'http://localhost:8090'
 
 ADMIN_DASHBOARD_HTML = '''
 <!DOCTYPE html>
@@ -588,7 +588,7 @@ ADMIN_DASHBOARD_HTML = '''
     </div>
 
     <script>
-        const SERVER_URL = 'http://localhost:3000';
+        const SERVER_URL = 'http://localhost:8090';
         let autoRefreshInterval = null;
 
         function toggleAutoRefresh() {
@@ -784,6 +784,6 @@ if __name__ == '__main__':
     print('=' * 70)
     print('Dashboard running at: http://localhost:9000')
     print('Auto-refresh: Every 2 seconds')
-    print('Server connection: http://localhost:3000')
+    print('Server connection: http://localhost:8090')
     print('=' * 70)
     app.run(host='0.0.0.0', port=9000, debug=True, use_reloader=False)

@@ -6,7 +6,7 @@ import sys
 app = Flask(__name__)
 CORS(app)
 
-SERVER_URL = 'http://localhost:8080'
+SERVER_URL = 'http://localhost:8090'
 
 DRIVER_DASHBOARD_HTML = '''
 <!DOCTYPE html>
