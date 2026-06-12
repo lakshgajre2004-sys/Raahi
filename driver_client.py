@@ -16,8 +16,6 @@ DRIVER_DASHBOARD_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raahi Driver - Partner Portal</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -935,16 +933,6 @@ DRIVER_DASHBOARD_HTML = '''
 
         <div class="dashboard-container">
             <!-- FREE OpenStreetMap -->
-            <div class="map-panel">
-                <div id="driver-map"></div>
-                <div class="map-overlay">
-                    <span class="map-icon">🚗</span>
-                    <div class="map-text">
-                        <div class="map-title">Bengaluru Routes</div>
-                        <div class="map-subtitle">Your service area</div>
-                    </div>
-                </div>
-            </div>
 
             <!-- Current Ride Panel -->
             <div class="panel" id="current-ride-panel" style="display: none;">
@@ -990,39 +978,7 @@ DRIVER_DASHBOARD_HTML = '''
         let currentDriverName = null;
         let queueRefreshInterval = null;
         let currentRideFare = 0;
-        let driverMap = null;
-
-        // Initialize FREE OpenStreetMap
-        function initDriverMap() {
-            if (driverMap) return;
-
-            driverMap = L.map('driver-map').setView([12.9716, 77.5946], 12);
-
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(driverMap);
-
-            const locations = [
-                {lat: 12.9716, lng: 77.5946, name: '🏛️ Vidhana Soudha', color: '#4cd964'},
-                {lat: 13.0827, lng: 77.5877, name: '✈️ Airport', color: '#5ac8fa'},
-                {lat: 12.9352, lng: 77.6245, name: '🏢 Electronic City', color: '#ffcc00'},
-                {lat: 12.9581, lng: 77.6348, name: '🛣️ Whitefield', color: '#ff9500'},
-                {lat: 13.0067, lng: 77.5653, name: '🌳 Cubbon Park', color: '#34c759'}
-            ];
-
-            locations.forEach(loc => {
-                const icon = L.divIcon({
-                    className: 'custom-marker',
-                    html: `<div style="background: ${loc.color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
-                    iconSize: [20, 20]
-                });
-
-                L.marker([loc.lat, loc.lng], {icon: icon})
-                    .addTo(driverMap)
-                    .bindPopup(`<b>${loc.name}</b>`);
-            });
-        }
+        
 
         function switchTab(tab) {
             document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
@@ -1057,7 +1013,6 @@ DRIVER_DASHBOARD_HTML = '''
                 document.getElementById('statusText').textContent = 'Offline';
                 document.getElementById('statusText').className = 'status-text offline';
 
-                setTimeout(() => initDriverMap(), 300);
             } catch (error) {
                 alert(`❌ Login Failed: ${error.message}`);
             }

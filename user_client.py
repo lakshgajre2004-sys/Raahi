@@ -19,8 +19,6 @@ USER_DASHBOARD_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raahi - Ride with Us</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1237,16 +1235,6 @@ USER_DASHBOARD_HTML = '''
         <div id="rides-section" class="section active">
         
             <!-- FREE OpenStreetMap -->
-            <div class="map-panel">
-                <div id="bengaluru-map"></div>
-                <div class="map-overlay">
-                    <span class="map-icon">📍</span>
-                    <div class="map-text">
-                        <div class="map-title">Bengaluru</div>
-                        <div class="map-subtitle">Karnataka, India</div>
-                    </div>
-                </div>
-            </div>
 
             <div class="panel">
                 <div class="panel-header">
@@ -1287,7 +1275,6 @@ USER_DASHBOARD_HTML = '''
                 </div>
             </div>
         </div>
-    </div>
 
     </div> <!-- End rides-section -->
 
@@ -1335,7 +1322,7 @@ USER_DASHBOARD_HTML = '''
             </div>
           </div>
         </div>
-      </div> <!-- End events-section -->
+      </div> </div> <!-- End events-section -->
 
       <!-- Booking Modal -->
       <div id="bookingModal" class="modal">
@@ -1375,7 +1362,6 @@ USER_DASHBOARD_HTML = '''
   let currentUserName = null;
   let statusCheckInterval = null;
   let currentRideId = null;
-  let map = null;
 
   // Helper to handle responses safely (JSON or non-JSON)
   async function handleResponse(response) {
@@ -1395,37 +1381,6 @@ USER_DASHBOARD_HTML = '''
     }
   }
 
-  // Initialize FREE OpenStreetMap
-  function initMap() {
-    if (map) return;
-
-    map = L.map('bengaluru-map').setView([12.9716, 77.5946], 12);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19
-    }).addTo(map);
-
-    const locations = [
-      { lat: 12.9716, lng: 77.5946, name: '🏛️ Vidhana Soudha', color: 'red' },
-      { lat: 13.0827, lng: 77.5877, name: '✈️ Kempegowda Airport', color: 'blue' },
-      { lat: 12.9352, lng: 77.6245, name: '🏢 Electronic City', color: 'green' },
-      { lat: 12.9581, lng: 77.6348, name: '🛣️ Whitefield', color: 'orange' },
-      { lat: 13.0067, lng: 77.5653, name: '🏛️ Cubbon Park', color: 'darkgreen' }
-    ];
-
-    locations.forEach(loc => {
-      const icon = L.divIcon({
-        className: 'custom-marker',
-        html: `<div style="background: ${loc.color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
-        iconSize: [20, 20]
-      });
-
-      L.marker([loc.lat, loc.lng], { icon: icon })
-        .addTo(map)
-        .bindPopup(`<b>${loc.name}</b>`);
-    });
-  }
 
   function switchTab(tab) {
     document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
@@ -1495,7 +1450,6 @@ USER_DASHBOARD_HTML = '''
     document.getElementById('dashboard-view').style.display = 'block';
     document.getElementById('welcome-message').textContent = `Welcome, ${currentUserName}! 👋`;
 
-    setTimeout(() => initMap(), 300);
 
     await loadMyRides();
     await checkForActiveRide();

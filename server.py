@@ -11,7 +11,7 @@ CORS(app)
 # --- Database Configuration ---
 DB_NAME = "miniuberdb"
 DB_USER = "postgres"
-DB_PASS = "Laksh@2004"
+DB_PASS = "Samehada@1234"
 DB_HOST = "localhost"
 DB_PORT = "5432"
 
@@ -56,138 +56,77 @@ def get_driver_details(driver_id):
         return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
 
 
-# --- Ride Lifecycle Endpoint ---
-# --- Robust ride state change endpoint (replaced) ---
+# In server.py
+
 ALLOWED_TRANSITIONS = {
     'requested': ['accepted', 'cancelled_by_user'],
+    'waiting': ['accepted', 'cancelled_by_user'],   # <--- ADD THIS LINE
     'accepted': ['in_progress', 'cancelled_by_driver'],
     'in_progress': ['completed', 'cancelled_by_driver'],
     'completed': [],
     'cancelled_by_user': [],
     'cancelled_by_driver': []
 }
-
 @app.route('/api/rides/<int:ride_id>/status', methods=['PUT'])
 def update_ride_status(ride_id):
     """
-    Robust ride state updater:
+    Robust ride state updater with EVENT SYNC:
     - validates input
-    - locks the ride row (SELECT ... FOR UPDATE) to avoid races
-    - validates allowed transitions
-    - returns clear 4xx/5xx responses with details
+    - locks the ride row
+    - updates ride status
+    - IF ride is completed return ride -> updates event_booking status
     """
     try:
         data = request.get_json(silent=True) or {}
         driver_id = data.get('driver_id')
         new_status = data.get('status')
-        actor = data.get('actor', 'unknown')
+        actor = data.get('actor', 'unknown') # Optional tracking
 
         if not new_status:
-            return jsonify({'success': False, 'error': 'status (new state) is required'}), 400
+            return jsonify({'success': False, 'error': 'Status required'}), 400
 
-        # Acquire DB row lock to prevent races
         with get_db_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("SELECT id, status, driver_id FROM rides WHERE id = %s FOR UPDATE", (ride_id,))
+                # 1. Lock the row
+                cur.execute("SELECT id, status FROM rides WHERE id = %s FOR UPDATE", (ride_id,))
                 row = cur.fetchone()
-
                 if not row:
-                    return jsonify({'success': False, 'error': 'ride_not_found', 'ride_id': ride_id}), 404
+                    return jsonify({'success': False, 'error': 'Ride not found'}), 404
 
-                current_status = row['status']
-                current_driver = row.get('driver_id')
-
-                print(f"[RideState] ride={ride_id} actor={actor} requested={new_status} current={current_status} cur_driver={current_driver} req_driver={driver_id}")
-
-                # if driver_id is required for this transition, validate it
-                if new_status in ('accepted', 'in_progress', 'completed'):
-                    if not driver_id:
-                        return jsonify({'success': False, 'error': 'driver_id required for this transition'}), 400
-
-                # Validate allowed transition
-                allowed_next = ALLOWED_TRANSITIONS.get(current_status, [])
-                if new_status not in allowed_next:
-                    return jsonify({
-                        'success': False,
-                        'error': 'invalid_state_transition',
-                        'detail': {
-                            'ride_id': ride_id,
-                            'current_status': current_status,
-                            'attempted': new_status,
-                            'allowed_next': allowed_next
-                        }
-                    }), 400
-
-                # Ownership check: only assigned driver can mark in_progress/completed
-                if current_driver and new_status in ('in_progress', 'completed') and driver_id != current_driver:
-                    return jsonify({'success': False, 'error': 'driver_mismatch', 'detail': {'current_driver': current_driver}}), 403
-
-                # Build update SQL per state
+                # 2. Update based on status
                 if new_status == 'accepted':
-                    sql = "UPDATE rides SET driver_id = %s, status = 'accepted', updated_at = NOW() WHERE id = %s RETURNING id;"
+                    sql = "UPDATE rides SET driver_id = %s, status = 'accepted' WHERE id = %s"
                     params = (driver_id, ride_id)
                 elif new_status == 'in_progress':
-                    sql = "UPDATE rides SET status = 'in_progress', started_at = NOW(), updated_at = NOW() WHERE id = %s AND driver_id = %s RETURNING id;"
+                    sql = "UPDATE rides SET status = 'in_progress' WHERE id = %s AND driver_id = %s"
                     params = (ride_id, driver_id)
                 elif new_status == 'completed':
-                    sql = "UPDATE rides SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = %s AND driver_id = %s RETURNING id;"
+                    sql = "UPDATE rides SET status = 'completed', completed_at = NOW() WHERE id = %s AND driver_id = %s"
                     params = (ride_id, driver_id)
                 else:
-                    return jsonify({'success': False, 'error': 'unsupported_state'}), 400
+                    return jsonify({'success': False, 'error': 'Invalid status'}), 400
 
                 cur.execute(sql, params)
-                updated = cur.fetchone()
-                if not updated:
-                    return jsonify({'success': False, 'error': 'update_failed', 'detail': 'Row not updated - possible concurrent modification or mismatched driver/state'}), 409
+                
+                # --- FIX: Sync Event Status ---
+                # If the driver marks the ride as 'completed', check if it was an event return ride.
+                if new_status == 'completed':
+                    cur.execute("SELECT event_booking_id, ride_type FROM rides WHERE id = %s", (ride_id,))
+                    ride_info = cur.fetchone()
+                    
+                    # If it is a return ride ('event_from'), mark the whole booking as completed
+                    if ride_info and ride_info.get('event_booking_id') and ride_info.get('ride_type') == 'event_from':
+                        cur.execute("UPDATE event_bookings SET ride_status = 'completed' WHERE id = %s", (ride_info['event_booking_id'],))
+                        print(f"✅ Auto-completed event booking #{ride_info['event_booking_id']}")
+                # ------------------------------
 
-                # commit if needed (your connection may already autocommit)
-                try:
-                    conn.commit()
-                except Exception:
-                    pass
-
-                print(f"✅ Ride {ride_id} -> {new_status} by driver {driver_id} (actor={actor})")
-                return jsonify({'success': True, 'ride_id': ride_id, 'new_status': new_status}), 200
+                conn.commit()
+                
+                return jsonify({'success': True, 'ride_id': ride_id, 'new_status': new_status})
 
     except Exception as e:
-        print("ERROR in update_ride_status:", e)
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': 'internal_server_error', 'details': str(e)}), 500
-@app.route('/api/rides/request', methods=['POST'])
-def request_ride():
-    try:
-        data = request.get_json()
-        if not data or not all(k in data for k in ['user_id', 'source_location', 'dest_location']):
-            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
-
-        user_id = data['user_id']
-        fare = calculate_fare(data['source_location'], data['dest_location'])
-
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                # --- FIX: Validate user_id exists before inserting ride ---
-                cur.execute("SELECT id FROM users WHERE id = %s;", (user_id,))
-                if not cur.fetchone():
-                    return jsonify({'success': False, 'error': f'User with id {user_id} not found'}), 404
-
-                cur.execute(
-                    "INSERT INTO rides (user_id, source_location, dest_location, status, fare) "
-                    "VALUES (%s, %s, %s, 'requested', %s) RETURNING id;",
-                    (user_id, data['source_location'], data['dest_location'], fare)
-                )
-                # --- FIX: Safely fetch the result ---
-                result = cur.fetchone()
-                if result:
-                    ride_id = result[0]
-                else:
-                    return jsonify({'success': False, 'error': 'Failed to create ride'}), 500
-
-        return jsonify({'success': True, 'ride_id': ride_id, 'estimated_fare': fare}), 201
-    except Exception as e:
-        print(f"Error in request_ride:")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
-
+        print(f"Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # --- Ride Request with Queue Info ---
 @app.route('/api/rides/request-with-queue', methods=['POST'])
@@ -882,6 +821,8 @@ def register_driver():
     
 # ================= DRIVER COMPLETED RIDES ENDPOINT =================
 
+# ================= DRIVER COMPLETED RIDES ENDPOINT =================
+
 @app.route('/api/drivers/<int:driver_id>/completed-rides', methods=['GET'])
 def get_completed_rides(driver_id):
     """
@@ -890,29 +831,36 @@ def get_completed_rides(driver_id):
     try:
         with get_db_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-
-                # Fetch completed rides
+                # Fetch completed rides with location details
                 cur.execute("""
-                    SELECT id, user_id, fare, completed_at
+                    SELECT id, user_id, fare, completed_at, source_location, dest_location
                     FROM rides
                     WHERE driver_id = %s AND status = 'completed'
                     ORDER BY completed_at DESC;
                 """, (driver_id,))
                 rides = cur.fetchall()
 
-                # Calculate totals
-                total_rides = len(rides)
-                total_earnings = sum(r['fare'] for r in rides) if rides else 0.0
+                # Calculate total earnings safely
+                total_earnings = sum((r['fare'] or 0) for r in rides)
 
+                # Fix date serialization (converts datetime objects to strings)
+                for r in rides:
+                    if r.get('completed_at'):
+                        r['completed_at'] = r['completed_at'].isoformat()
+
+                # Return data in the structure the Driver Client expects
                 return jsonify({
                     "success": True,
                     "driver_id": driver_id,
-                    "total_rides": total_rides,
-                    "total_earnings": total_earnings,
+                    "summary": {
+                        "total_rides": len(rides),
+                        "total_earnings": float(total_earnings)
+                    },
                     "data": rides
                 }), 200
 
     except Exception as e:
+        import traceback
         traceback.print_exc()
         return jsonify({
             "success": False,
@@ -920,10 +868,40 @@ def get_completed_rides(driver_id):
             "details": str(e)
         }), 500
 
+# --- Get Active Ride for Driver ---
+@app.route('/api/drivers/<int:driver_id>/active-ride', methods=['GET'])
+def get_active_ride(driver_id):
+    """
+    Checks if the driver has a ride currently 'accepted' or 'in_progress'.
+    Used by the Driver Client to restore state (e.g., show 'Start Ride' button).
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT * FROM rides 
+                    WHERE driver_id = %s 
+                    AND status IN ('accepted', 'in_progress')
+                    LIMIT 1;
+                """, (driver_id,))
+                
+                ride = cur.fetchone()
+
+                if ride:
+                    # Fix date serialization for JSON
+                    if ride.get('created_at'):
+                        ride['created_at'] = ride['created_at'].isoformat()
+                    return jsonify({'success': True, 'data': ride})
+                else:
+                    return jsonify({'success': True, 'data': None})
+
+    except Exception as e:
+        print(f"Error in get_active_ride: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     print('=' * 60)
-    print('ðŸš— Mini Uber Core Server')
+    print('🚗 Mini Uber Core Server')
     print('=' * 60)
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 3000
@@ -932,48 +910,3 @@ if __name__ == '__main__':
     print('Real-time updates: Enabled')
     print('=' * 60)
     app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)
-
-# --- Driver Completed Rides (today) / Earnings ---
-@app.route('/api/drivers/<int:driver_id>/completed-rides', methods=['GET'])
-def get_completed_rides_today(driver_id):
-    """
-    Returns completed rides for the driver today and a summary (total rides, total earnings).
-    """
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    SELECT id, user_id, fare, created_at, started_at, completed_at
-                    FROM rides
-                    WHERE driver_id = %s
-                      AND status = 'completed'
-                      AND completed_at >= date_trunc('day', NOW())
-                    ORDER BY completed_at DESC;
-                    """,
-                    (driver_id,)
-                )
-                rides = cur.fetchall()
-
-                total_earnings = sum((r.get('fare') or 0) for r in rides)
-                for r in rides:
-                    if r.get('created_at'):
-                        r['created_at'] = r['created_at'].isoformat()
-                    if r.get('started_at'):
-                        r['started_at'] = r['started_at'].isoformat()
-                    if r.get('completed_at'):
-                        r['completed_at'] = r['completed_at'].isoformat()
-
-        return jsonify({
-            'success': True,
-            'summary': {
-                'total_rides': len(rides),
-                'total_earnings': float(total_earnings)
-            },
-            'data': rides
-        }), 200
-
-    except Exception as e:
-        print("ERROR in get_completed_rides_today:", e)
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': 'internal_server_error', 'details': str(e)}), 500

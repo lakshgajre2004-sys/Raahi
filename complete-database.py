@@ -4,7 +4,7 @@ import sys
 
 DB_NAME = "miniuberdb"
 DB_USER = "postgres"
-DB_PASS = "Laksh@2004"
+DB_PASS = "Samehada@1234"
 DB_HOST = "localhost"
 DB_PORT = "5432"
 
