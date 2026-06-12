@@ -879,6 +879,47 @@ def register_driver():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+    
+# ================= DRIVER COMPLETED RIDES ENDPOINT =================
+
+@app.route('/api/drivers/<int:driver_id>/completed-rides', methods=['GET'])
+def get_completed_rides(driver_id):
+    """
+    Returns all completed rides for a driver + earnings summary.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+
+                # Fetch completed rides
+                cur.execute("""
+                    SELECT id, user_id, fare, completed_at
+                    FROM rides
+                    WHERE driver_id = %s AND status = 'completed'
+                    ORDER BY completed_at DESC;
+                """, (driver_id,))
+                rides = cur.fetchall()
+
+                # Calculate totals
+                total_rides = len(rides)
+                total_earnings = sum(r['fare'] for r in rides) if rides else 0.0
+
+                return jsonify({
+                    "success": True,
+                    "driver_id": driver_id,
+                    "total_rides": total_rides,
+                    "total_earnings": total_earnings,
+                    "data": rides
+                }), 200
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": "internal_server_error",
+            "details": str(e)
+        }), 500
+
 
 if __name__ == '__main__':
     print('=' * 60)
@@ -892,3 +933,47 @@ if __name__ == '__main__':
     print('=' * 60)
     app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)
 
+# --- Driver Completed Rides (today) / Earnings ---
+@app.route('/api/drivers/<int:driver_id>/completed-rides', methods=['GET'])
+def get_completed_rides_today(driver_id):
+    """
+    Returns completed rides for the driver today and a summary (total rides, total earnings).
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT id, user_id, fare, created_at, started_at, completed_at
+                    FROM rides
+                    WHERE driver_id = %s
+                      AND status = 'completed'
+                      AND completed_at >= date_trunc('day', NOW())
+                    ORDER BY completed_at DESC;
+                    """,
+                    (driver_id,)
+                )
+                rides = cur.fetchall()
+
+                total_earnings = sum((r.get('fare') or 0) for r in rides)
+                for r in rides:
+                    if r.get('created_at'):
+                        r['created_at'] = r['created_at'].isoformat()
+                    if r.get('started_at'):
+                        r['started_at'] = r['started_at'].isoformat()
+                    if r.get('completed_at'):
+                        r['completed_at'] = r['completed_at'].isoformat()
+
+        return jsonify({
+            'success': True,
+            'summary': {
+                'total_rides': len(rides),
+                'total_earnings': float(total_earnings)
+            },
+            'data': rides
+        }), 200
+
+    except Exception as e:
+        print("ERROR in get_completed_rides_today:", e)
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'internal_server_error', 'details': str(e)}), 500
