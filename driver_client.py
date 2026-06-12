@@ -29,7 +29,7 @@ def driver_health():
         'server_connection': server_status,
         'client_type': CLIENT_TYPE,
         'timestamp': datetime.now().isoformat(),
-        'port': 6000
+        'port': 8000 # Correct port
     })
 
 @app.route('/api/driver/rides/available', methods=['GET'])
@@ -218,18 +218,17 @@ def update_ride_status(ride_id):
 def calculate_earnings(ride):
     """Calculate estimated earnings for a ride"""
     base_rates = {
-        'standard': 2.5,
-        'premium': 3.5,
-        'shared': 1.8
+        'standard': 15.0,
+        'premium': 25.0,
+        'shared': 10.0
     }
     
-    base_rate = base_rates.get(ride.get('ride_type', 'standard'), 2.5)
+    base_rate = base_rates.get(ride.get('ride_type', 'standard'), 15.0)
     estimated_distance = get_estimated_distance(ride)
-    return round(base_rate * estimated_distance + 3.0, 2)  # Base fare + distance
+    return round(base_rate * estimated_distance + 50.0, 2)  # Base fare of ₹50 + distance
 
 def get_estimated_distance(ride):
     """Estimate distance based on locations (simplified)"""
-    # In real app, you'd use Google Maps API or similar
     location_pairs = {
         ('Airport Terminal 1', 'Downtown Hotel'): 12.5,
         ('Home', 'Office Complex'): 8.2,
@@ -425,11 +424,11 @@ DRIVER_DASHBOARD_HTML = '''
                                     Type: ${ride.ride_type} | Distance: ${ride.distance_info}
                                 </div>
                                 <div class="ride-meta">
-                                    <span class="earnings">Estimated Earnings: $${ride.estimated_earnings}</span> | 
+                                    <span class="earnings">Estimated Earnings: ₹${ride.estimated_earnings}</span> | 
                                     ${new Date(ride.created_at).toLocaleString()}
                                 </div>
                                 <button onclick="acceptRide(${ride.id})" class="btn btn-accept">
-                                    Accept Ride ($${ride.estimated_earnings})
+                                    Accept Ride (₹${ride.estimated_earnings})
                                 </button>
                             </div>
                         `;
@@ -465,7 +464,7 @@ DRIVER_DASHBOARD_HTML = '''
                     
                     let html = `
                         <h3>My Rides (${result.rides.length} total)</h3>
-                        <div class="info">Total Earnings: <span class="earnings">$${result.total_earnings}</span></div>
+                        <div class="info">Total Earnings: <span class="earnings">₹${result.total_earnings}</span></div>
                     `;
                     
                     result.rides.forEach(ride => {
@@ -484,7 +483,7 @@ DRIVER_DASHBOARD_HTML = '''
                                 </div>
                                 <div class="ride-meta">
                                     <strong>Ride #${ride.id}</strong> | User: ${ride.user_id} | 
-                                    Earnings: <span class="earnings">$${ride.earnings}</span>
+                                    Earnings: <span class="earnings">₹${ride.earnings}</span>
                                 </div>
                                 <div class="ride-meta">
                                     Status: ${ride.driver_status} | ${new Date(ride.created_at).toLocaleString()}
@@ -566,8 +565,9 @@ DRIVER_DASHBOARD_HTML = '''
 
 if __name__ == '__main__':
     print('🚕 Mini Uber Driver Client starting...')
-    print('🌐 Driver dashboard: http://localhost:6000')
-    print('📡 API endpoints: http://localhost:6000/api/driver/*')
+    print('🌐 Driver dashboard: http://localhost:8000')
+    print('📡 API endpoints: http://localhost:8000/api/driver/*')
     print(f'🔗 Connecting to server: {SERVER_URL}')
     # Added use_reloader=False to prevent the infinite restart loop
     app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=False)
+    

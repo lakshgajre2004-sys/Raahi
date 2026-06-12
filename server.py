@@ -297,6 +297,63 @@ def update_ride_status(ride_id):
     except Exception as e:
         print(f"❌ Error updating ride status: {e}")
         return jsonify({'error': 'Failed to update ride status', 'details': str(e)}), 500
+    
+    # Add this new endpoint to your server.py file
+
+@app.route('/api/rides/<int:ride_id>/cancel', methods=['PUT'])
+def cancel_ride(ride_id):
+    """
+    Allows a user or driver to cancel a ride.
+    """
+    try:
+        data = request.get_json()
+        cancelled_by = data.get('cancelled_by', 'system') # Can be 'user' or 'driver'
+
+        conn = get_db_connection()
+        cur = conn.cursor(row_factory=dict_row)
+
+        # First, check the current status of the ride
+        cur.execute("SELECT status FROM rides WHERE id = %s;", (ride_id,))
+        ride = cur.fetchone()
+
+        if not ride:
+            return jsonify({'error': 'Ride not found'}), 404
+        
+        # Prevent cancellation if the ride is already completed or cancelled
+        if ride['status'] in ['completed', 'cancelled']:
+            return jsonify({
+                'error': 'Cannot cancel ride',
+                'details': f'Ride is already {ride["status"]}.'
+            }), 400
+
+        # Update the ride status to 'cancelled'
+        cur.execute("""
+            UPDATE rides 
+            SET status = 'cancelled', cancelled_by = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s 
+            RETURNING *;
+        """, (cancelled_by, ride_id))
+        
+        updated_ride = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Ride #{ride_id} was cancelled by {cancelled_by}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Ride has been successfully cancelled.',
+            'data': {
+                'id': updated_ride['id'],
+                'status': updated_ride['status'],
+                'cancelled_by': updated_ride['cancelled_by']
+            }
+        })
+
+    except Exception as e:
+        print(f"❌ Error cancelling ride: {e}")
+        return jsonify({'error': 'Failed to cancel ride', 'details': str(e)}), 500
 
 # ===== ADMIN ENDPOINTS =====
 @app.route('/api/admin/rides', methods=['GET'])
