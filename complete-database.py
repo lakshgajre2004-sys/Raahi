@@ -29,7 +29,9 @@ def get_db_connection():
     return psycopg.connect(f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}", autocommit=True)
 
 def setup_schema_and_data():
+    # --- FIX: Added 'ride_skips' to the drop list ---
     drop_commands = [
+        "DROP TABLE IF EXISTS ride_skips CASCADE",
         "DROP TABLE IF EXISTS event_bookings CASCADE",
         "DROP TABLE IF EXISTS events CASCADE",
         "DROP TABLE IF EXISTS rides CASCADE",
