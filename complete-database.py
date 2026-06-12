@@ -5,7 +5,7 @@ import sys
 # Database configuration - UPDATE YOUR PASSWORD HERE!
 DB_NAME = "mini_uber_db"
 DB_USER = "postgres"
-DB_PASS = "Samehada@1234"  # ⚠️ CHANGE THIS TO YOUR POSTGRESQL PASSWORD
+DB_PASS = "Laksh@2004"  # ⚠️ Make sure this is your correct PostgreSQL password
 DB_HOST = "localhost"
 DB_PORT = "5432"
 
@@ -13,12 +13,10 @@ def create_database():
     """Create the database if it doesn't exist"""
     try:
         print("🔌 Connecting to PostgreSQL server...")
-        # Note: psycopg3 uses different connection syntax
         conn = psycopg.connect(
             f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname=postgres",
             autocommit=True
         )
-        
         cur = conn.cursor()
         
         # Check if database exists
@@ -28,7 +26,6 @@ def create_database():
         if exists:
             print(f"✅ Database '{DB_NAME}' already exists")
         else:
-            # Use sql.Identifier for safe database name handling
             cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(DB_NAME)))
             print(f"✅ Database '{DB_NAME}' created successfully")
         
@@ -44,15 +41,12 @@ def create_tables_and_data():
     """Create all tables with enhanced schema and sample data"""
     try:
         print(f"🔌 Connecting to database '{DB_NAME}'...")
-        # psycopg3 connection string format
         conn = psycopg.connect(
             f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
         )
-        
         cur = conn.cursor()
         
         print("📋 Creating enhanced rides table...")
-        # Enhanced rides table with all new columns
         create_rides_table = """
         CREATE TABLE IF NOT EXISTS rides (
             id SERIAL PRIMARY KEY,
@@ -85,13 +79,12 @@ def create_tables_and_data():
             cur.execute(index)
         
         print("⏰ Creating trigger for updated_at...")
-        # Create trigger for auto-updating updated_at
         trigger_function = """
         CREATE OR REPLACE FUNCTION update_updated_at_column()
         RETURNS TRIGGER AS $$
         BEGIN
-            NEW.updated_at = CURRENT_TIMESTAMP;
-            RETURN NEW;
+           NEW.updated_at = CURRENT_TIMESTAMP;
+           RETURN NEW;
         END;
         $$ language 'plpgsql';
         """
@@ -100,8 +93,8 @@ def create_tables_and_data():
         trigger = """
         DROP TRIGGER IF EXISTS update_rides_updated_at ON rides;
         CREATE TRIGGER update_rides_updated_at 
-            BEFORE UPDATE ON rides 
-            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+          BEFORE UPDATE ON rides 
+          FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
         """
         cur.execute(trigger)
         
@@ -165,29 +158,24 @@ def create_tables_and_data():
         (124, 457, 'University Campus', 'City Library', 'shared', 'completed', 8.90),
         (125, NULL, 'Train Station', 'Business Park', 'standard', 'requested', 22.10),
         (125, NULL, 'Coffee Shop', 'Movie Theater', 'premium', 'requested', 15.60)
-        ON CONFLICT DO NOTHING;
+        ON CONFLICT (id) DO NOTHING; 
         """
         cur.execute(insert_rides)
         
-        # Commit all changes
         conn.commit()
         
-        # Verify data
         cur.execute("SELECT COUNT(*) FROM rides;")
         rides_count = cur.fetchone()[0]
-        
         cur.execute("SELECT COUNT(*) FROM users;")
         users_count = cur.fetchone()[0]
-        
         cur.execute("SELECT COUNT(*) FROM drivers;")
         drivers_count = cur.fetchone()[0]
         
-        print(f"✅ Tables created successfully!")
+        print("✅ Tables created successfully!")
         print(f"   📊 Rides: {rides_count} records")
         print(f"   👥 Users: {users_count} records")
         print(f"   🚕 Drivers: {drivers_count} records")
         
-        # Show sample data
         print("\n📋 Sample rides:")
         cur.execute("SELECT id, user_id, driver_id, source_location, dest_location, status FROM rides LIMIT 3;")
         rides = cur.fetchall()
@@ -210,43 +198,33 @@ def test_all_operations():
         conn = psycopg.connect(
             f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
         )
-        
         cur = conn.cursor()
         
-        # Test 1: Get available rides (what drivers see)
-        cur.execute("SELECT COUNT(*) FROM rides WHERE status IN ('requested', 'pending');")
+        cur.execute("SELECT COUNT(*) FROM rides WHERE status = 'requested';")
         available_count = cur.fetchone()[0]
         print(f"✅ Available rides for drivers: {available_count}")
         
-        # Test 2: Get user rides
         cur.execute("SELECT COUNT(*) FROM rides WHERE user_id = 123;")
         user_rides = cur.fetchone()[0]
         print(f"✅ Rides for user 123: {user_rides}")
         
-        # Test 3: Get driver rides
         cur.execute("SELECT COUNT(*) FROM rides WHERE driver_id = 456;")
         driver_rides = cur.fetchone()[0]
         print(f"✅ Rides for driver 456: {driver_rides}")
         
-        # Test 4: Insert new ride (simulate user request)
         cur.execute("""
             INSERT INTO rides (user_id, source_location, dest_location, ride_type, status) 
             VALUES (%s, %s, %s, %s, %s) RETURNING id;
         """, (999, 'Test Location A', 'Test Location B', 'standard', 'requested'))
-        
         new_ride_id = cur.fetchone()[0]
         print(f"✅ Created test ride: #{new_ride_id}")
         
-        # Test 5: Update ride (simulate driver accepting)
         cur.execute("""
-            UPDATE rides SET driver_id = %s, status = %s, updated_at = CURRENT_TIMESTAMP 
-            WHERE id = %s RETURNING id;
+            UPDATE rides SET driver_id = %s, status = %s WHERE id = %s RETURNING id;
         """, (999, 'accepted', new_ride_id))
-        
         updated_ride = cur.fetchone()
         print(f"✅ Updated ride status: #{updated_ride[0]}")
         
-        # Clean up test data
         cur.execute("DELETE FROM rides WHERE id = %s;", (new_ride_id,))
         conn.commit()
         print(f"✅ Cleaned up test ride: #{new_ride_id}")
@@ -263,17 +241,14 @@ def main():
     print("🚗 Mini Uber Complete Database Setup (psycopg3)")
     print("=" * 50)
     
-    # Step 1: Create database
     if not create_database():
         print("❌ Failed to create database. Exiting...")
         sys.exit(1)
     
-    # Step 2: Create tables and insert data
     if not create_tables_and_data():
         print("❌ Failed to create tables. Exiting...")
         sys.exit(1)
     
-    # Step 3: Test operations
     if not test_all_operations():
         print("❌ Database tests failed. Exiting...")
         sys.exit(1)
@@ -290,7 +265,7 @@ def main():
     print("   📝 Sample data for testing")
     
     print("\n🚀 Next steps:")
-    print("1. Run: python enhanced_server.py")
+    print("1. Run: python server.py")
     print("2. Run: python user_client.py (in another terminal)")
     print("3. Run: python driver_client.py (in another terminal)")
 

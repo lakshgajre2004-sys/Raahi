@@ -570,4 +570,4 @@ if __name__ == '__main__':
     print('📡 API endpoints: http://localhost:6000/api/driver/*')
     print(f'🔗 Connecting to server: {SERVER_URL}')
     # Added use_reloader=False to prevent the infinite restart loop
-    app.run(host='0.0.0.0', port=6000, debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=False)
