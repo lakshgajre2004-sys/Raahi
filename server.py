@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Database Configuration ---
-DB_NAME = "mini_uber_db"
+DB_NAME = "miniuberdb"
 DB_USER = "postgres"
 DB_PASS = "Samehada@1234"
 DB_HOST = "localhost"
@@ -571,6 +571,290 @@ def get_ride_details(ride_id):
         print(f"Error in get_ride_details:")
         traceback.print_exc()
         return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+
+
+# ============= ENHANCED EVENT + RIDE ENDPOINTS =============
+
+@app.route("/api/events", methods=["GET"])
+def get_all_events():
+    """Get all available events"""
+    try:
+        print("📡 GET /api/events")
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT id, title, description, event_date, event_time, 
+                           location, category, price, image_emoji, available_seats
+                    FROM events ORDER BY event_date ASC
+                """)
+                events = cur.fetchall()
+                for event in events:
+                    if event.get('event_date'):
+                        event['event_date'] = event['event_date'].isoformat()
+                    if event.get('event_time'):
+                        event['event_time'] = str(event['event_time'])
+                print(f"✓ Returning {len(events)} events")
+                return jsonify({"success": True, "data": events})
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": "Database error"}), 500
+
+@app.route("/api/events/book", methods=["POST"])
+def book_event():
+    """Book event with optional ride"""
+    try:
+        data = request.get_json()
+        print(f"📝 Event booking: {data}")
+
+        required_fields = ["user_id", "event_id", "num_tickets"]
+        if not data or not all(k in data for k in required_fields):
+            return jsonify({"success": False, "error": "Missing required fields"}), 400
+
+        user_id = data["user_id"]
+        event_id = data["event_id"]
+        num_tickets = data.get("num_tickets", 1)
+        with_ride = data.get("with_ride", False)
+        pickup_location = data.get("pickup_location", "")
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Verify user exists
+                cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+                if not cur.fetchone():
+                    return jsonify({"success": False, "error": "User not found"}), 404
+
+                # Get event info
+                cur.execute("SELECT price, available_seats, location FROM events WHERE id = %s", (event_id,))
+                event_info = cur.fetchone()
+                if not event_info:
+                    return jsonify({"success": False, "error": "Event not found"}), 404
+
+                price, available_seats, event_location = event_info
+
+                if available_seats < num_tickets:
+                    return jsonify({"success": False, "error": "Not enough seats"}), 400
+
+                total_amount = float(price) * num_tickets
+
+                # Create event booking
+                ride_status = 'scheduled' if with_ride else 'no_ride'
+
+                cur.execute("""
+                    INSERT INTO event_bookings 
+                    (user_id, event_id, num_tickets, total_amount, status, 
+                     with_ride, pickup_location, ride_status)
+                    VALUES (%s, %s, %s, %s, 'confirmed', %s, %s, %s) 
+                    RETURNING id
+                """, (user_id, event_id, num_tickets, total_amount, with_ride, pickup_location, ride_status))
+
+                booking_id = cur.fetchone()[0]
+
+                # Update available seats
+                cur.execute("UPDATE events SET available_seats = available_seats - %s WHERE id = %s", 
+                          (num_tickets, event_id))
+
+                # If with ride, create the TO event ride
+                to_ride_id = None
+                if with_ride and pickup_location:
+                    fare = calculate_fare(pickup_location, event_location)
+                    cur.execute("""
+                        INSERT INTO rides 
+                        (user_id, source_location, dest_location, status, fare, 
+                         ride_type, event_booking_id)
+                        VALUES (%s, %s, %s, 'waiting', %s, 'event_to', %s)
+                        RETURNING id
+                    """, (user_id, pickup_location, event_location, fare, booking_id))
+
+                    to_ride_id = cur.fetchone()[0]
+
+                    # Update booking with ride ID
+                    cur.execute("""
+                        UPDATE event_bookings 
+                        SET to_event_ride_id = %s 
+                        WHERE id = %s
+                    """, (to_ride_id, booking_id))
+
+                    print(f"✓ Created TO event ride {to_ride_id}")
+
+                print(f"✓ Event booking {booking_id} created (with_ride={with_ride})")
+
+                return jsonify({
+                    "success": True,
+                    "booking_id": booking_id,
+                    "total_amount": total_amount,
+                    "with_ride": with_ride,
+                    "to_ride_id": to_ride_id,
+                    "message": f"Successfully booked {num_tickets} ticket(s)!" + 
+                              (" Ride scheduled!" if with_ride else "")
+                }), 201
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/users/<int:user_id>/event-bookings", methods=["GET"])
+def get_user_event_bookings(user_id):
+    """Get user's event bookings with ride info"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT 
+                        eb.*,
+                        e.title as event_title, 
+                        e.event_date, 
+                        e.event_time, 
+                        e.location as event_location, 
+                        e.image_emoji,
+                        r1.id as to_ride_id,
+                        r1.status as to_ride_status,
+                        r1.driver_id as to_ride_driver_id,
+                        r2.id as from_ride_id,
+                        r2.status as from_ride_status,
+                        r2.driver_id as from_ride_driver_id
+                    FROM event_bookings eb
+                    JOIN events e ON eb.event_id = e.id
+                    LEFT JOIN rides r1 ON eb.to_event_ride_id = r1.id
+                    LEFT JOIN rides r2 ON eb.from_event_ride_id = r2.id
+                    WHERE eb.user_id = %s 
+                    ORDER BY e.event_date DESC
+                """, (user_id,))
+                bookings = cur.fetchall()
+
+                for b in bookings:
+                    if b.get('booking_date'):
+                        b['booking_date'] = b['booking_date'].isoformat()
+                    if b.get('event_date'):
+                        b['event_date'] = b['event_date'].isoformat()
+                    if b.get('event_time'):
+                        b['event_time'] = str(b['event_time'])
+
+                return jsonify({"success": True, "data": bookings})
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/event-bookings/<int:booking_id>/start-ride", methods=["POST"])
+def start_event_ride(booking_id):
+    """Start the ride to event"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Get booking and ride info
+                cur.execute("""
+                    SELECT eb.to_event_ride_id, eb.ride_status, r.status
+                    FROM event_bookings eb
+                    LEFT JOIN rides r ON eb.to_event_ride_id = r.id
+                    WHERE eb.id = %s
+                """, (booking_id,))
+
+                result = cur.fetchone()
+                if not result:
+                    return jsonify({"success": False, "error": "Booking not found"}), 404
+
+                ride_id, ride_status, ride_db_status = result
+
+                if not ride_id:
+                    return jsonify({"success": False, "error": "No ride scheduled"}), 400
+
+                # Update ride status to in-queue
+                cur.execute("""
+                    UPDATE rides 
+                    SET status = 'waiting' 
+                    WHERE id = %s
+                """, (ride_id,))
+
+                # Update booking ride status
+                cur.execute("""
+                    UPDATE event_bookings 
+                    SET ride_status = 'to_event' 
+                    WHERE id = %s
+                """, (booking_id,))
+
+                print(f"✓ Started ride {ride_id} to event (booking {booking_id})")
+
+                return jsonify({
+                    "success": True,
+                    "message": "Ride started! Waiting for driver...",
+                    "ride_id": ride_id
+                })
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/event-bookings/<int:booking_id>/mark-complete", methods=["POST"])
+def mark_event_complete(booking_id):
+    """Mark event as complete and create return ride"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Get booking info
+                cur.execute("""
+                    SELECT 
+                        eb.user_id, 
+                        eb.pickup_location, 
+                        e.location as event_location,
+                        eb.from_event_ride_id
+                    FROM event_bookings eb
+                    JOIN events e ON eb.event_id = e.id
+                    WHERE eb.id = %s
+                """, (booking_id,))
+
+                result = cur.fetchone()
+                if not result:
+                    return jsonify({"success": False, "error": "Booking not found"}), 404
+
+                user_id, pickup_location, event_location, existing_from_ride = result
+
+                # If return ride already exists, just activate it
+                if existing_from_ride:
+                    cur.execute("UPDATE rides SET status = 'waiting' WHERE id = %s", (existing_from_ride,))
+                    from_ride_id = existing_from_ride
+                else:
+                    # Create return ride
+                    fare = calculate_fare(event_location, pickup_location)
+                    cur.execute("""
+                        INSERT INTO rides 
+                        (user_id, source_location, dest_location, status, fare, 
+                         ride_type, event_booking_id)
+                        VALUES (%s, %s, %s, 'waiting', %s, 'event_from', %s)
+                        RETURNING id
+                    """, (user_id, event_location, pickup_location, fare, booking_id))
+
+                    from_ride_id = cur.fetchone()[0]
+
+                    # Update booking with return ride ID
+                    cur.execute("""
+                        UPDATE event_bookings 
+                        SET from_event_ride_id = %s 
+                        WHERE id = %s
+                    """, (from_ride_id, booking_id))
+
+                # Update ride status
+                cur.execute("""
+                    UPDATE event_bookings 
+                    SET ride_status = 'from_event' 
+                    WHERE id = %s
+                """, (booking_id,))
+
+                print(f"✓ Event completed! Return ride {from_ride_id} created")
+
+                return jsonify({
+                    "success": True,
+                    "message": "Return ride scheduled! Waiting for driver...",
+                    "from_ride_id": from_ride_id
+                })
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ============= END ENHANCED EVENT ENDPOINTS =============
 
 
 if __name__ == '__main__':

@@ -493,7 +493,7 @@ DRIVER_DASHBOARD_HTML = '''
             gap: 30px;
         }
 
-        .map-panel {
+        .map-panel { display: none !important;
             grid-column: 1 / -1;
             padding: 0;
             border-radius: 20px;
@@ -834,7 +834,7 @@ DRIVER_DASHBOARD_HTML = '''
             .dashboard-container {
                 grid-template-columns: 1fr;
             }
-            .map-panel {
+            .map-panel { display: none !important;
                 height: 250px;
             }
             .header-actions {

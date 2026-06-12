@@ -407,7 +407,7 @@ USER_DASHBOARD_HTML = '''
             gap: 30px;
         }
 
-        .map-panel {
+        .map-panel { display: none !important;
             grid-column: 1 / -1;
             padding: 0;
             border-radius: 20px;
@@ -789,11 +789,359 @@ USER_DASHBOARD_HTML = '''
             .dashboard-container {
                 grid-template-columns: 1fr;
             }
-            .map-panel {
+            .map-panel { display: none !important;
                 height: 250px;
             }
         }
-    </style>
+    
+
+        /* EVENTS WITH REDUCED SPACING */
+        .main-nav {
+            display: flex;
+            gap: 10px;
+            max-width: 500px;
+            margin: 0 auto 25px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .main-nav-tab {
+            flex: 1;
+            padding: 14px 20px;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .main-nav-tab.active {
+            background: #fff;
+            color: #000;
+            box-shadow: 0 4px 14px rgba(255, 255, 255, 0.2);
+        }
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .panel {
+            margin-bottom: 25px;
+        }
+
+        .events-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+            padding: 10px 0;
+        }
+
+        .event-card {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 18px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .event-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 16px 40px rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .event-emoji {
+            font-size: 56px;
+            text-align: center;
+            padding: 25px;
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .event-content {
+            padding: 20px;
+        }
+
+        .event-category {
+            display: inline-block;
+            padding: 6px 14px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 10px;
+        }
+
+        .event-title {
+            font-size: 19px;
+            font-weight: 800;
+            margin-bottom: 10px;
+            line-height: 1.3;
+            color: #fff;
+        }
+
+        .event-description {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 14px;
+            line-height: 1.6;
+            min-height: 50px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .event-detail {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 6px;
+        }
+
+        .event-price {
+            font-size: 24px;
+            font-weight: 800;
+            color: #4cd964;
+            margin: 12px 0 14px;
+        }
+
+        .event-price.free {
+            color: #ffcc00;
+        }
+
+        .book-btn {
+            width: 100%;
+            padding: 14px;
+            background: #fff;
+            color: #000;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .book-btn:hover {
+            background: #f0f0f0;
+            transform: translateY(-2px);
+        }
+
+        .booking-card {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 18px;
+            border-radius: 16px;
+            margin-bottom: 14px;
+        }
+
+        .booking-card p {
+            margin: 6px 0;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 14px;
+        }
+
+        .booking-status {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: rgba(76, 217, 100, 0.25);
+            color: #4cd964;
+            border: 1px solid rgba(76, 217, 100, 0.3);
+        }
+
+        /* Event Ride Features */
+        .ride-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background: rgba(76, 217, 100, 0.2);
+            color: #4cd964;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: 8px;
+        }
+
+        .ride-status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+
+        .action-btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #4cd964;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 6px 4px;
+        }
+
+        .action-btn:hover {
+            background: #3cb54a;
+            transform: scale(1.05);
+        }
+
+        .action-btn.secondary {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        .action-btn.secondary:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Modal for booking with ride */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 450px;
+            width: 90%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-header {
+            font-size: 22px;
+            font-weight: 800;
+            margin-bottom: 20px;
+            color: #fff;
+        }
+
+        .modal-option {
+            padding: 18px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            margin-bottom: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .modal-option:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .modal-option.selected {
+            background: rgba(76, 217, 100, 0.15);
+            border-color: #4cd964;
+        }
+
+        .modal-option-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .modal-option-desc {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .input-group {
+            margin: 16px 0;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .modal-actions button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .modal-actions .btn-primary {
+            background: #4cd964;
+            color: #000;
+        }
+
+        .modal-actions .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+      </style>
 </head>
 <body>
     <div class="bg-pattern"></div>
@@ -873,7 +1221,18 @@ USER_DASHBOARD_HTML = '''
             </button>
         </div>
 
-        <div class="dashboard-container">
+        <div class="main-nav">
+        <button class="main-nav-tab active" onclick="switchMainSection('rides')">
+          <span>🚗</span> Raahi Ride
+        </button>
+        <button class="main-nav-tab" onclick="switchMainSection('events')">
+          <span>🎉</span> Raahi Events
+        </button>
+      </div>
+
+      <div class="dashboard-container">
+        <div id="rides-section" class="section active">
+        
             <!-- FREE OpenStreetMap -->
             <div class="map-panel">
                 <div id="bengaluru-map"></div>
@@ -927,7 +1286,88 @@ USER_DASHBOARD_HTML = '''
         </div>
     </div>
 
-    <script>
+    </div> <!-- End rides-section -->
+
+      <div id="events-section" class="section">
+
+        <!-- Scheduled Event Rides -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-icon">🚕</div>
+            <h3>Scheduled Event Rides</h3>
+          </div>
+          <div id="scheduledRides">
+            <div class="empty-state">
+              <div class="empty-icon">🚕</div>
+              <p>No scheduled event rides</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Discover Events -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-icon">🎉</div>
+            <h3>Discover Events</h3>
+          </div>
+          <div id="eventsAlert" class="alert"></div>
+          <div id="eventsGrid" class="events-grid">
+            <p style="text-align: center; color: rgba(255,255,255,0.5); padding: 40px 0;">⏳ Loading events...</p>
+          </div>
+        </div>
+
+        <!-- My Event Bookings -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-icon">🎫</div>
+            <h3>My Event Bookings</h3>
+          </div>
+          <button onclick="loadMyEventBookings()" class="btn" style="margin-bottom: 18px;">
+            🔄 Refresh Bookings
+          </button>
+          <div id="myEventBookings">
+            <div class="empty-state">
+              <div class="empty-icon">🎫</div>
+              <p>No bookings yet</p>
+            </div>
+          </div>
+        </div>
+      </div> <!-- End events-section -->
+
+      <!-- Booking Modal -->
+      <div id="bookingModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">Book Event</div>
+
+          <div class="input-group">
+            <label>Number of Tickets:</label>
+            <input type="number" id="modalTickets" value="1" min="1">
+          </div>
+
+          <div class="modal-option" onclick="selectBookingOption('event-only')">
+            <div class="modal-option-title">🎫 Event Only</div>
+            <div class="modal-option-desc">Just book the event ticket</div>
+          </div>
+
+          <div class="modal-option" onclick="selectBookingOption('with-ride')">
+            <div class="modal-option-title">🚗 Book with Ride</div>
+            <div class="modal-option-desc">Event ticket + rides to and from event</div>
+          </div>
+
+          <div id="pickupLocationGroup" class="input-group" style="display: none;">
+            <label>Your Pickup Location:</label>
+            <input type="text" id="modalPickupLocation" placeholder="Enter your location">
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeBookingModal()">Cancel</button>
+            <button class="btn-primary" onclick="confirmBooking()">Confirm Booking</button>
+          </div>
+        </div>
+      </div>
+
+      
+      <script>
         let currentUserId = null;
         let currentUserName = null;
         let statusCheckInterval = null;
@@ -1342,6 +1782,325 @@ USER_DASHBOARD_HTML = '''
                 console.error('Error loading rides:', error);
             }
         }
+    
+
+      // ========== EVENT + RIDE INTEGRATION SYSTEM ==========
+      const SERVER_URL = '';
+      let currentBookingEvent = null;
+      let selectedBookingOption = 'event-only';
+
+      function switchMainSection(section) {
+        document.querySelectorAll('.main-nav-tab').forEach(tab => tab.classList.remove('active'));
+        event.target.closest('.main-nav-tab').classList.add('active');
+
+        document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+        document.getElementById(section + '-section').classList.add('active');
+
+        if (section === 'events') {
+          loadEvents();
+          loadScheduledEventRides();
+          loadMyEventBookings();
+        } else if (section === 'rides') {
+          loadMyRides();
+          checkForActiveRide();
+        }
+      }
+
+      async function loadEvents() {
+        const eventsGrid = document.getElementById('eventsGrid');
+        eventsGrid.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.5); padding: 40px 0;">⏳ Loading...</p>';
+
+        try {
+          const response = await fetch(`${SERVER_URL}/api/events`);
+          const data = await response.json();
+
+          if (!data.success || !data.data || data.data.length === 0) {
+            eventsGrid.innerHTML = '<div class="empty-state"><div class="empty-icon">🎉</div><p>No events available</p></div>';
+            return;
+          }
+
+          eventsGrid.innerHTML = data.data.map(event => {
+            const price = parseFloat(event.price);
+            const priceDisplay = price === 0 
+              ? '<div class="event-price free">FREE</div>' 
+              : `<div class="event-price">₹${price.toFixed(0)}</div>`;
+
+            return `
+              <div class="event-card">
+                <div class="event-emoji">${event.image_emoji || '🎉'}</div>
+                <div class="event-content">
+                  <span class="event-category">${event.category || 'Event'}</span>
+                  <div class="event-title">${event.title}</div>
+                  <div class="event-description">${event.description}</div>
+                  <div class="event-detail"><span>📅</span> ${new Date(event.event_date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                  <div class="event-detail"><span>⏰</span> ${event.event_time || 'TBA'}</div>
+                  <div class="event-detail"><span>📍</span> ${event.location}</div>
+                  <div class="event-detail"><span>🎫</span> ${event.available_seats} seats</div>
+                  ${priceDisplay}
+                  <button class="book-btn" onclick='openBookingModal(${JSON.stringify(event)})'>
+                    🎟️ Book Now
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } catch (error) {
+          console.error('Error loading events:', error);
+          eventsGrid.innerHTML = '<p style="color: #ff3b30; text-align: center;">Could not load events</p>';
+        }
+      }
+
+      function openBookingModal(event) {
+        if (!currentUserId) {
+          showEventAlert('⚠️ Please login first', 'error');
+          return;
+        }
+
+        currentBookingEvent = event;
+        document.getElementById('modalTickets').value = 1;
+        document.getElementById('modalPickupLocation').value = '';
+        selectedBookingOption = 'event-only';
+
+        // Reset option selection
+        document.querySelectorAll('.modal-option').forEach(opt => opt.classList.remove('selected'));
+        document.getElementById('pickupLocationGroup').style.display = 'none';
+
+        document.getElementById('bookingModal').classList.add('show');
+      }
+
+      function closeBookingModal() {
+        document.getElementById('bookingModal').classList.remove('show');
+        currentBookingEvent = null;
+      }
+
+      function selectBookingOption(option) {
+        selectedBookingOption = option;
+
+        document.querySelectorAll('.modal-option').forEach(opt => opt.classList.remove('selected'));
+        event.target.closest('.modal-option').classList.add('selected');
+
+        if (option === 'with-ride') {
+          document.getElementById('pickupLocationGroup').style.display = 'block';
+        } else {
+          document.getElementById('pickupLocationGroup').style.display = 'none';
+        }
+      }
+
+      async function confirmBooking() {
+        if (!currentBookingEvent) return;
+
+        const numTickets = parseInt(document.getElementById('modalTickets').value);
+        const withRide = selectedBookingOption === 'with-ride';
+        const pickupLocation = document.getElementById('modalPickupLocation').value.trim();
+
+        if (numTickets < 1) {
+          alert('Please enter valid number of tickets');
+          return;
+        }
+
+        if (withRide && !pickupLocation) {
+          alert('Please enter your pickup location');
+          return;
+        }
+
+        try {
+          const response = await fetch(`${SERVER_URL}/api/events/book`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: parseInt(currentUserId),
+              event_id: currentBookingEvent.id,
+              num_tickets: numTickets,
+              with_ride: withRide,
+              pickup_location: pickupLocation
+            })
+          });
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            throw new Error(result.error || 'Booking failed');
+          }
+
+          closeBookingModal();
+          showEventAlert(`✅ ${result.message}`, 'success');
+
+          loadEvents();
+          loadScheduledEventRides();
+          loadMyEventBookings();
+
+        } catch (error) {
+          showEventAlert(`❌ ${error.message}`, 'error');
+        }
+      }
+
+      async function loadScheduledEventRides() {
+        if (!currentUserId) return;
+
+        const container = document.getElementById('scheduledRides');
+        container.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.5); padding: 30px 0;">⏳ Loading...</p>';
+
+        try {
+          const response = await fetch(`${SERVER_URL}/api/users/${currentUserId}/event-bookings`);
+          const data = await response.json();
+
+          if (!data.success || !data.data) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-icon">🚕</div><p>No scheduled event rides</p></div>';
+            return;
+          }
+
+          const scheduled = data.data.filter(b => 
+            b.with_ride && ['scheduled', 'to_event', 'from_event'].includes(b.ride_status)
+          );
+
+          if (scheduled.length === 0) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-icon">🚕</div><p>No scheduled event rides</p></div>';
+            return;
+          }
+
+          container.innerHTML = scheduled.map(booking => {
+            let actionButton = '';
+            let statusText = '';
+
+            if (booking.ride_status === 'scheduled') {
+              statusText = '🕒 Ride Scheduled';
+              actionButton = `<button class="action-btn" onclick="startEventRide(${booking.id})">🚗 Start Ride to Event</button>`;
+            } else if (booking.ride_status === 'to_event') {
+              statusText = '🚗 On way to event...';
+              actionButton = `<button class="action-btn secondary" onclick="markEventComplete(${booking.id})">✓ Mark Event Complete</button>`;
+            } else if (booking.ride_status === 'from_event') {
+              statusText = '🏠 Return ride in progress...';
+            }
+
+            return `
+              <div class="booking-card">
+                <p style="font-size: 17px; font-weight: 700;">${booking.event_emoji || '🎉'} ${booking.event_title}</p>
+                <div class="ride-status-indicator">
+                  <span>${statusText}</span>
+                </div>
+                <p>📅 ${new Date(booking.event_date).toLocaleDateString('en-IN')}</p>
+                <p>📍 From: ${booking.pickup_location}</p>
+                <p>📍 To: ${booking.event_location}</p>
+                ${actionButton}
+              </div>
+            `;
+          }).join('');
+
+        } catch (error) {
+          console.error('Error:', error);
+          container.innerHTML = '<p style="color: #ff3b30; text-align: center;">Could not load rides</p>';
+        }
+      }
+
+      async function startEventRide(bookingId) {
+        try {
+          const response = await fetch(`${SERVER_URL}/api/event-bookings/${bookingId}/start-ride`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            throw new Error(result.error || 'Failed to start ride');
+          }
+
+          showEventAlert(`✅ ${result.message}`, 'success');
+          loadScheduledEventRides();
+          loadMyEventBookings();
+
+        } catch (error) {
+          showEventAlert(`❌ ${error.message}`, 'error');
+        }
+      }
+
+      async function markEventComplete(bookingId) {
+        if (!confirm('Mark event as complete and request return ride?')) return;
+
+        try {
+          const response = await fetch(`${SERVER_URL}/api/event-bookings/${bookingId}/mark-complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            throw new Error(result.error || 'Failed to complete event');
+          }
+
+          showEventAlert(`✅ ${result.message}`, 'success');
+          loadScheduledEventRides();
+          loadMyEventBookings();
+
+        } catch (error) {
+          showEventAlert(`❌ ${error.message}`, 'error');
+        }
+      }
+
+      async function loadMyEventBookings() {
+        if (!currentUserId) return;
+
+        const container = document.getElementById('myEventBookings');
+        container.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.5); padding: 30px 0;">⏳ Loading...</p>';
+
+        try {
+          const response = await fetch(`${SERVER_URL}/api/users/${currentUserId}/event-bookings`);
+          const data = await response.json();
+
+          if (!data.success || !data.data || data.data.length === 0) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-icon">🎫</div><p>No bookings yet</p></div>';
+            return;
+          }
+
+          container.innerHTML = data.data.map(booking => {
+            let rideBadge = '';
+            let rideStatus = '';
+
+            if (booking.with_ride) {
+              const statusMap = {
+                'scheduled': '🕒 Ride Scheduled',
+                'to_event': '🚗 Going to Event',
+                'at_event': '📍 At Event',
+                'from_event': '🏠 Returning Home',
+                'completed': '✅ Completed'
+              };
+              rideBadge = '<span class="ride-badge">WITH RIDE</span>';
+              rideStatus = `<p style="font-size: 13px; color: #4cd964;">Ride: ${statusMap[booking.ride_status] || booking.ride_status}</p>`;
+            }
+
+            return `
+              <div class="booking-card">
+                <span class="booking-status">${booking.status}</span>
+                ${rideBadge}
+                <p style="font-size: 17px; font-weight: 700; margin-top: 10px;">${booking.event_emoji || '🎉'} ${booking.event_title}</p>
+                <p>📅 ${new Date(booking.event_date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                <p>⏰ ${booking.event_time || 'TBA'}</p>
+                <p>📍 ${booking.event_location}</p>
+                <p>🎫 Tickets: ${booking.num_tickets}</p>
+                <p style="font-size: 18px; color: #4cd964; font-weight: 700; margin-top: 8px;">Total: ₹${parseFloat(booking.total_amount).toFixed(2)}</p>
+                ${rideStatus}
+                <p style="font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 10px;">Booked on ${new Date(booking.booking_date).toLocaleDateString('en-IN')}</p>
+              </div>
+            `;
+          }).join('');
+
+        } catch (error) {
+          console.error('Error:', error);
+          container.innerHTML = '<p style="color: #ff3b30; text-align: center;">Could not load bookings</p>';
+        }
+      }
+
+      function showEventAlert(message, type = 'success') {
+        const alert = document.getElementById('eventsAlert');
+        if (alert) {
+          alert.textContent = message;
+          alert.className = `alert ${type} show`;
+          setTimeout(() => alert.classList.remove('show'), 5000);
+        }
+      }
+
+
     </script>
 </body>
 </html>
@@ -1408,3 +2167,52 @@ if __name__ == '__main__':
     print(f'🗺️  Using FREE OpenStreetMap (No API Key Required!)')
     print(f'Connecting to server at {SERVER_URL}')
     app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)
+# ========== EVENT-RIDE PROXY ROUTES ==========
+
+@app.route("/api/events", methods=["GET"])
+def proxy_get_events():
+    try:
+        response = requests.get(f"{SERVER_URL}/api/events", timeout=5)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+
+@app.route("/api/events/book", methods=["POST"])
+def proxy_book_event():
+    try:
+        response = requests.post(f"{SERVER_URL}/api/events/book", json=request.get_json(), timeout=5)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+
+@app.route("/api/users/<int:user_id>/event-bookings", methods=["GET"])
+def proxy_get_user_bookings(user_id):
+    try:
+        response = requests.get(f"{SERVER_URL}/api/users/{user_id}/event-bookings", timeout=5)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+
+@app.route("/api/event-bookings/<int:booking_id>/start-ride", methods=["POST"])
+def proxy_start_event_ride(booking_id):
+    try:
+        response = requests.post(f"{SERVER_URL}/api/event-bookings/{booking_id}/start-ride", timeout=5)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+
+@app.route("/api/event-bookings/<int:booking_id>/mark-complete", methods=["POST"])
+def proxy_mark_event_complete(booking_id):
+    try:
+        response = requests.post(f"{SERVER_URL}/api/event-bookings/{booking_id}/mark-complete", timeout=5)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 503
+
+
+
+
+if __name__ == "__main__":
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    print(f"User Client running on http://127.0.0.1:{port}")
+    app.run(host='0.0.0.0', port=port, debug=True)
