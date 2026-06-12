@@ -2,17 +2,17 @@ import psycopg
 from psycopg import sql
 import sys
 
-# Database configuration - UPDATE YOUR PASSWORD HERE!
+# --- Database Configuration ---
 DB_NAME = "mini_uber_db"
 DB_USER = "postgres"
-DB_PASS = "Laksh@2004"  # ⚠️ Make sure this is your correct PostgreSQL password
+DB_PASS = "Laksh@2004"
 DB_HOST = "localhost"
 DB_PORT = "5432"
 
 def create_database():
-    """Create the database if it doesn't exist"""
+    """Creates the database if it doesn't exist."""
     try:
-        print("🔌 Connecting to PostgreSQL server...")
+        # Connect to postgres database to create our database
         conn = psycopg.connect(
             f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname=postgres",
             autocommit=True
@@ -21,253 +21,174 @@ def create_database():
         
         # Check if database exists
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DB_NAME,))
-        exists = cur.fetchone()
-        
-        if exists:
-            print(f"✅ Database '{DB_NAME}' already exists")
-        else:
+        if not cur.fetchone():
+            print(f"📦 Creating database '{DB_NAME}'...")
             cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(DB_NAME)))
-            print(f"✅ Database '{DB_NAME}' created successfully")
+            print(f"✅ Database '{DB_NAME}' created successfully!")
+        else:
+            print(f"✓ Database '{DB_NAME}' already exists.")
         
         cur.close()
         conn.close()
         return True
-        
     except Exception as e:
-        print(f"❌ Error creating database: {e}")
+        print(f"❌ Database connection/creation failed: {e}")
         return False
 
-def create_tables_and_data():
-    """Create all tables with enhanced schema and sample data"""
+def get_db_connection():
+    """Establishes a connection to the mini_uber_db database."""
     try:
-        print(f"🔌 Connecting to database '{DB_NAME}'...")
-        conn = psycopg.connect(
-            f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
+        return psycopg.connect(
+            f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}",
+            autocommit=True
         )
-        cur = conn.cursor()
-        
-        print("📋 Creating enhanced rides table...")
-        create_rides_table = """
-        CREATE TABLE IF NOT EXISTS rides (
+    except psycopg.OperationalError as e:
+        print(f"❌ CRITICAL: Database connection failed: {e}")
+        raise
+
+def setup_schema_and_data():
+    """Drops old tables and creates a fresh schema with all features."""
+    
+    # --- Table Creation Commands ---
+    commands = [
+        "DROP TABLE IF EXISTS rides CASCADE;",
+        "DROP TABLE IF EXISTS users CASCADE;",
+        "DROP TABLE IF EXISTS drivers CASCADE;",
+        """
+        CREATE TABLE users (
             id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            driver_id INTEGER NULL,
+            name VARCHAR(100) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL,
+            phone VARCHAR(20),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );""",
+        """
+        CREATE TABLE drivers (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL,
+            vehicle_details VARCHAR(255),
+            online_status VARCHAR(20) DEFAULT 'offline',
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );""",
+        """
+        CREATE TABLE rides (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            driver_id INTEGER REFERENCES drivers(id),
             source_location VARCHAR(255) NOT NULL,
             dest_location VARCHAR(255) NOT NULL,
-            ride_type VARCHAR(50) DEFAULT 'standard',
-            status VARCHAR(50) DEFAULT 'requested',
+            status VARCHAR(50) NOT NULL,
+            fare NUMERIC(10, 2),
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            estimated_fare DECIMAL(10,2) NULL,
-            actual_fare DECIMAL(10,2) NULL,
-            distance_km DECIMAL(6,2) NULL,
-            duration_minutes INTEGER NULL,
-            cancelled_by VARCHAR(20) NULL,
-            cancellation_reason TEXT NULL
-        );
+            completed_at TIMESTAMP WITH TIME ZONE
+        );""",
         """
-        cur.execute(create_rides_table)
-        
-        print("🔍 Creating indexes...")
-        indexes = [
-            "CREATE INDEX IF NOT EXISTS idx_rides_user_id ON rides(user_id);",
-            "CREATE INDEX IF NOT EXISTS idx_rides_driver_id ON rides(driver_id);",
-            "CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status);",
-            "CREATE INDEX IF NOT EXISTS idx_rides_created_at ON rides(created_at);"
-        ]
-        for index in indexes:
-            cur.execute(index)
-        
-        print("⏰ Creating trigger for updated_at...")
-        trigger_function = """
-        CREATE OR REPLACE FUNCTION update_updated_at_column()
-        RETURNS TRIGGER AS $$
-        BEGIN
-           NEW.updated_at = CURRENT_TIMESTAMP;
-           RETURN NEW;
-        END;
-        $$ language 'plpgsql';
+        CREATE INDEX idx_rides_user_id ON rides(user_id);
+        """,
         """
-        cur.execute(trigger_function)
-        
-        trigger = """
-        DROP TRIGGER IF EXISTS update_rides_updated_at ON rides;
-        CREATE TRIGGER update_rides_updated_at 
-          BEFORE UPDATE ON rides 
-          FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+        CREATE INDEX idx_rides_driver_id ON rides(driver_id);
+        """,
         """
-        cur.execute(trigger)
-        
-        print("👥 Creating users table...")
-        create_users_table = """
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            phone VARCHAR(20),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
+        CREATE INDEX idx_rides_status ON rides(status);
         """
-        cur.execute(create_users_table)
-        
-        print("🚕 Creating drivers table...")
-        create_drivers_table = """
-        CREATE TABLE IF NOT EXISTS drivers (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            phone VARCHAR(20),
-            license_number VARCHAR(50),
-            vehicle_type VARCHAR(50),
-            vehicle_plate VARCHAR(20),
-            status VARCHAR(20) DEFAULT 'offline',
-            rating DECIMAL(3,2) DEFAULT 5.00,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        """
-        cur.execute(create_drivers_table)
-        
-        print("📝 Inserting sample data...")
-        
-        # Insert sample users
-        insert_users = """
-        INSERT INTO users (id, name, email, phone) VALUES
-        (123, 'John Doe', 'john.doe@email.com', '+1234567890'),
-        (124, 'Jane Smith', 'jane.smith@email.com', '+1234567891'),
-        (125, 'Mike Johnson', 'mike.johnson@email.com', '+1234567892')
-        ON CONFLICT (email) DO NOTHING;
-        """
-        cur.execute(insert_users)
-        
-        # Insert sample drivers
-        insert_drivers = """
-        INSERT INTO drivers (id, name, email, phone, license_number, vehicle_type, vehicle_plate, status) VALUES
-        (456, 'Driver Alex', 'alex.driver@email.com', '+1234567800', 'DL123456', 'Sedan', 'ABC-123', 'available'),
-        (457, 'Driver Sarah', 'sarah.driver@email.com', '+1234567801', 'DL123457', 'SUV', 'XYZ-789', 'available'),
-        (458, 'Driver Tom', 'tom.driver@email.com', '+1234567802', 'DL123458', 'Hatchback', 'PQR-456', 'busy')
-        ON CONFLICT (email) DO NOTHING;
-        """
-        cur.execute(insert_drivers)
-        
-        # Insert sample rides
-        insert_rides = """
-        INSERT INTO rides (user_id, driver_id, source_location, dest_location, ride_type, status, estimated_fare) VALUES
-        (123, NULL, 'Airport Terminal 1', 'Downtown Hotel', 'standard', 'requested', 25.50),
-        (123, 456, 'Home', 'Office Complex', 'premium', 'accepted', 18.75),
-        (124, 456, 'Shopping Mall', 'Restaurant District', 'standard', 'in_progress', 12.30),
-        (124, 457, 'University Campus', 'City Library', 'shared', 'completed', 8.90),
-        (125, NULL, 'Train Station', 'Business Park', 'standard', 'requested', 22.10),
-        (125, NULL, 'Coffee Shop', 'Movie Theater', 'premium', 'requested', 15.60)
-        ON CONFLICT (id) DO NOTHING; 
-        """
-        cur.execute(insert_rides)
-        
-        conn.commit()
-        
-        cur.execute("SELECT COUNT(*) FROM rides;")
-        rides_count = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM users;")
-        users_count = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM drivers;")
-        drivers_count = cur.fetchone()[0]
-        
-        print("✅ Tables created successfully!")
-        print(f"   📊 Rides: {rides_count} records")
-        print(f"   👥 Users: {users_count} records")
-        print(f"   🚕 Drivers: {drivers_count} records")
-        
-        print("\n📋 Sample rides:")
-        cur.execute("SELECT id, user_id, driver_id, source_location, dest_location, status FROM rides LIMIT 3;")
-        rides = cur.fetchall()
-        for ride in rides:
-            driver_info = f"Driver {ride[2]}" if ride[2] else "No driver assigned"
-            print(f"   🚗 Ride #{ride[0]}: User {ride[1]} | {ride[3]} → {ride[4]} | {ride[5]} | {driver_info}")
-        
-        cur.close()
-        conn.close()
+    ]
+    
+    # --- Sample Data ---
+    sample_data = [
+        "INSERT INTO users (id, name, email, phone) VALUES (101, 'Rohan Sharma', 'rohan@example.com', '555-0101');",
+        "INSERT INTO users (id, name, email, phone) VALUES (102, 'Anjali Verma', 'anjali@example.com', '555-0102');",
+        "INSERT INTO drivers (id, name, email, vehicle_details) VALUES (201, 'Priya Singh', 'priya@example.com', 'Maruti Swift (DL-01-AB-1234)');",
+        "INSERT INTO drivers (id, name, email, vehicle_details) VALUES (202, 'Raj Kumar', 'raj@example.com', 'Honda City (DL-02-CD-5678)');"
+    ]
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                print("🗑️  Dropping old tables...")
+                for command in commands[:3]:  # Drop commands
+                    cur.execute(command)
+                print("✓ Old tables dropped")
+                
+                print("🏗️  Creating fresh schema...")
+                for command in commands[3:]:  # Create commands
+                    cur.execute(command)
+                print("✓ Tables and indexes created")
+                
+                print("📝 Inserting sample data...")
+                for data in sample_data:
+                    cur.execute(data)
+                print("✓ Sample data inserted")
+                
+                # --- Reset ID Counters ---
+                print("🔄 Resetting primary key sequences...")
+                cur.execute("SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));")
+                cur.execute("SELECT setval('drivers_id_seq', (SELECT MAX(id) FROM drivers));")
+                # For rides, use setval with is_called=false since table is empty
+                cur.execute("SELECT setval('rides_id_seq', 1, false);")
+                print("✓ Sequences reset")
+
+        print("✅ Database has been completely reset and is ready to use!")
         return True
-        
     except Exception as e:
-        print(f"❌ Error creating tables: {e}")
+        print(f"❌ Error during schema setup: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
-def test_all_operations():
-    """Test all database operations that the server will use"""
+def verify_setup():
+    """Verifies that the database setup was successful."""
     try:
-        print("\n🧪 Testing database operations...")
-        conn = psycopg.connect(
-            f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
-        )
-        cur = conn.cursor()
-        
-        cur.execute("SELECT COUNT(*) FROM rides WHERE status = 'requested';")
-        available_count = cur.fetchone()[0]
-        print(f"✅ Available rides for drivers: {available_count}")
-        
-        cur.execute("SELECT COUNT(*) FROM rides WHERE user_id = 123;")
-        user_rides = cur.fetchone()[0]
-        print(f"✅ Rides for user 123: {user_rides}")
-        
-        cur.execute("SELECT COUNT(*) FROM rides WHERE driver_id = 456;")
-        driver_rides = cur.fetchone()[0]
-        print(f"✅ Rides for driver 456: {driver_rides}")
-        
-        cur.execute("""
-            INSERT INTO rides (user_id, source_location, dest_location, ride_type, status) 
-            VALUES (%s, %s, %s, %s, %s) RETURNING id;
-        """, (999, 'Test Location A', 'Test Location B', 'standard', 'requested'))
-        new_ride_id = cur.fetchone()[0]
-        print(f"✅ Created test ride: #{new_ride_id}")
-        
-        cur.execute("""
-            UPDATE rides SET driver_id = %s, status = %s WHERE id = %s RETURNING id;
-        """, (999, 'accepted', new_ride_id))
-        updated_ride = cur.fetchone()
-        print(f"✅ Updated ride status: #{updated_ride[0]}")
-        
-        cur.execute("DELETE FROM rides WHERE id = %s;", (new_ride_id,))
-        conn.commit()
-        print(f"✅ Cleaned up test ride: #{new_ride_id}")
-        
-        cur.close()
-        conn.close()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Check tables exist
+                cur.execute("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    ORDER BY table_name;
+                """)
+                tables = [row[0] for row in cur.fetchall()]
+                print(f"\n📋 Tables created: {', '.join(tables)}")
+                
+                # Check sample data
+                cur.execute("SELECT COUNT(*) FROM users;")
+                user_count = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM drivers;")
+                driver_count = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM rides;")
+                ride_count = cur.fetchone()[0]
+                
+                print(f"👥 Users: {user_count}")
+                print(f"🚗 Drivers: {driver_count}")
+                print(f"🚕 Rides: {ride_count}")
+                
         return True
-        
     except Exception as e:
-        print(f"❌ Database operations test failed: {e}")
+        print(f"❌ Verification failed: {e}")
         return False
 
 def main():
-    print("🚗 Mini Uber Complete Database Setup (psycopg3)")
-    print("=" * 50)
+    print("=" * 60)
+    print("🚗 Mini Uber Database Setup")
+    print("=" * 60)
     
     if not create_database():
-        print("❌ Failed to create database. Exiting...")
-        sys.exit(1)
+        sys.exit("❌ Database creation failed. Exiting.")
     
-    if not create_tables_and_data():
-        print("❌ Failed to create tables. Exiting...")
-        sys.exit(1)
+    if not setup_schema_and_data():
+        sys.exit("❌ Schema setup failed. Exiting.")
     
-    if not test_all_operations():
-        print("❌ Database tests failed. Exiting...")
-        sys.exit(1)
-    
-    print("\n" + "=" * 50)
-    print("🎉 Complete database setup successful!")
-    print("\n📋 What was created:")
-    print("   🗄️  Database: mini_uber_db")
-    print("   📊 Table: rides (with enhanced columns)")
-    print("   👥 Table: users")
-    print("   🚕 Table: drivers")
-    print("   🔍 Indexes for performance")
-    print("   ⏰ Auto-update triggers")
-    print("   📝 Sample data for testing")
-    
-    print("\n🚀 Next steps:")
-    print("1. Run: python server.py")
-    print("2. Run: python user_client.py (in another terminal)")
-    print("3. Run: python driver_client.py (in another terminal)")
+    if verify_setup():
+        print("\n" + "=" * 60)
+        print("🎉 Database setup completed successfully!")
+        print("=" * 60)
+        print("\n💡 Next steps:")
+        print("   1. Start the server: python server.py")
+        print("   2. Start the driver client: python driver_client.py")
+        print("   3. Start the user client: python user_client.py")
+    else:
+        sys.exit("❌ Verification failed. Please check the errors above.")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

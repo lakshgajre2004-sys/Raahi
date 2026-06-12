@@ -1,121 +1,12 @@
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import requests
-from datetime import datetime
+import sys
 
 app = Flask(__name__)
 CORS(app)
 
 SERVER_URL = 'http://localhost:3000'
-CLIENT_TYPE = 'USER'
-
-@app.route('/')
-def home():
-    """User client dashboard"""
-    return render_template_string(USER_DASHBOARD_HTML)
-
-# --- All the Python functions for API endpoints are correct and do not need changes ---
-
-@app.route('/api/user/health', methods=['GET'])
-def user_health():
-    """Health check for user client"""
-    try:
-        server_response = requests.get(f'{SERVER_URL}/api/health', timeout=5)
-        server_status = "Connected" if server_response.status_code == 200 else "Error"
-    except:
-        server_status = "Disconnected"
-    
-    return jsonify({
-        'service': 'User Client API',
-        'status': 'running',
-        'server_connection': server_status,
-        'client_type': CLIENT_TYPE,
-        'timestamp': datetime.now().isoformat(),
-        'port': 5000
-    })
-
-@app.route('/api/user/request-ride', methods=['POST'])
-def request_ride():
-    """Request a new ride (User perspective)"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'error': 'No ride data provided'}), 400
-    
-    required_fields = ['user_id', 'source_location', 'dest_location']
-    for field in required_fields:
-        if not data.get(field):
-            return jsonify({'error': f'Missing required field: {field}'}), 400
-    
-    try:
-        ride_data = {
-            'user_id': data['user_id'],
-            'source_location': data['source_location'],
-            'dest_location': data['dest_location'],
-            'ride_type': data.get('ride_type', 'standard'),
-        }
-        
-        server_response = requests.post(f'{SERVER_URL}/api/users/rides', json=ride_data, timeout=10)
-        
-        if server_response.status_code == 201:
-            result = server_response.json()
-            return jsonify({
-                'success': True,
-                'message': 'Your ride has been requested successfully!',
-                'ride_id': result['data']['id'],
-                'data': result['data']
-            }), 201
-        else:
-            return jsonify(server_response.json()), server_response.status_code
-            
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': 'Cannot connect to ride service', 'details': str(e)}), 503
-
-@app.route('/api/user/<int:user_id>/rides', methods=['GET'])
-def get_my_rides(user_id):
-    """Get ride history for a user"""
-    try:
-        server_response = requests.get(f'{SERVER_URL}/api/users/{user_id}/rides', timeout=10)
-        
-        if server_response.status_code == 200:
-            result = server_response.json()
-            rides = result.get('data', [])
-            
-            for ride in rides:
-                ride['user_friendly_status'] = get_user_friendly_status(ride['status'])
-                ride['can_cancel'] = ride['status'] in ['requested', 'accepted']
-            
-            return jsonify({
-                'success': True,
-                'rides': rides
-            })
-        else:
-            return jsonify(server_response.json()), server_response.status_code
-            
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': 'Cannot connect to ride service', 'details': str(e)}), 503
-
-@app.route('/api/rides/<int:ride_id>/cancel', methods=['PUT'])
-def cancel_ride_proxy(ride_id):
-    """Proxy the cancel request to the main server"""
-    data = request.get_json()
-    try:
-        server_response = requests.put(f'{SERVER_URL}/api/rides/{ride_id}/cancel', json=data, timeout=10)
-        return server_response.json(), server_response.status_code
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': 'Cannot connect to ride service', 'details': str(e)}), 503
-
-
-def get_user_friendly_status(status):
-    """Convert technical status to user-friendly message"""
-    status_map = {
-        'requested': 'Looking for a driver...',
-        'accepted': 'Driver on the way!',
-        'in_progress': 'In transit',
-        'completed': 'Trip completed',
-        'cancelled': 'Cancelled'
-    }
-    return status_map.get(status, status)
 
 USER_DASHBOARD_HTML = '''
 <!DOCTYPE html>
@@ -123,156 +14,660 @@ USER_DASHBOARD_HTML = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Dashboard - Mini Uber</title>
+    <title>User Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f2f5; }
-        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1, h2 { color: #333; }
-        input, select, button { padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box; }
-        button { background-color: #007bff; color: white; cursor: pointer; border: none; font-size: 16px; }
-        button:hover { opacity: 0.9; }
-        .btn-danger { background-color: #dc3545; }
-        #rideStatus, #ridesResult { margin-top: 20px; }
-        .ride { border: 1px solid #e0e0e0; padding: 15px; margin: 10px 0; border-radius: 8px; background: #fafafa; }
-        .status { padding: 10px; border-radius: 6px; text-align: center; }
-        .status.success { background-color: #d4edda; color: #155724; }
-        .status.error { background-color: #f8d7da; color: #721c24; }
-        .fare { font-weight: bold; color: #28a745; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .auth-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+            max-width: 900px;
+            width: 100%;
+            display: flex;
+            min-height: 500px;
+        }
+        .auth-sidebar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px;
+            flex: 1;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .auth-sidebar h1 { font-size: 32px; margin-bottom: 20px; }
+        .auth-sidebar p { opacity: 0.9; line-height: 1.6; }
+        .auth-content {
+            flex: 1.5;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .auth-tabs {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+        }
+        .auth-tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            color: #999;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        .auth-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        .auth-form { display: none; }
+        .auth-form.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        /* Dashboard Styles */
+        .dashboard-container {
+            background: #f5f7fa;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .dashboard-header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .dashboard-header h2 { color: #667eea; margin: 0; }
+        .logout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .panel {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .panel h3 {
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+        .alert {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        .alert.show { display: block; animation: slideIn 0.3s; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .location-input {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        .location-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #667eea;
+        }
+        .location-input input {
+            padding-left: 45px;
+        }
+        .queue-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+        .queue-card .position {
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .queue-card .label {
+            text-align: center;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+        .queue-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .queue-stat {
+            background: rgba(255,255,255,0.2);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .queue-stat .number {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .queue-stat .text {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        .queue-note {
+            background: rgba(255,255,255,0.15);
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 13px;
+            text-align: center;
+        }
+        .ride-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+        .ride-card p { margin: 8px 0; }
+        .ride-card .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status.requested { background: #fff3cd; color: #856404; }
+        .status.accepted { background: #d1ecf1; color: #0c5460; }
+        .status.in_progress { background: #d4edda; color: #155724; }
+        .status.completed { background: #d6d8db; color: #383d41; }
+        
+        /* Pulse animation for position changes */
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .position-updated {
+            animation: pulse 0.5s ease-in-out;
+        }
+        
+        @media (max-width: 768px) {
+            .auth-container { flex-direction: column; }
+            .auth-sidebar { padding: 30px; }
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>👥 User Dashboard</h1>
-        
-        <h2>Request a New Ride</h2>
-        <div id="rideForm">
-            <input type="number" id="userId" placeholder="Your User ID (e.g., 123)" value="123">
-            <input type="text" id="source" placeholder="Source Location" value="Home">
-            <input type="text" id="destination" placeholder="Destination Location" value="Office Complex">
-            <select id="rideType">
-                <option value="standard">Standard</option>
-                <option value="premium">Premium</option>
-                <option value="shared">Shared</option>
-            </select>
-            <button onclick="requestRide()">Request Ride</button>
+    <!-- Authentication View -->
+    <div id="auth-view" class="auth-container">
+        <div class="auth-sidebar">
+            <h1>Mini Uber</h1>
+            <p>Book rides instantly with our easy-to-use platform. Get real-time fare estimates, track your queue position, and enjoy a seamless transportation experience.</p>
         </div>
-        <div id="rideStatus"></div>
-        
-        <hr style="margin: 25px 0;">
+        <div class="auth-content">
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchTab('register')">Register</button>
+                <button class="auth-tab" onclick="switchTab('login')">Login</button>
+            </div>
+            
+            <form id="register-form" class="auth-form active" onsubmit="registerUser(event)">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="regName" placeholder="Enter your full name" required>
+                </div>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="regEmail" placeholder="Enter your email" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone Number</label>
+                    <input type="tel" id="regPhone" placeholder="Enter your phone number" required>
+                </div>
+                <button type="submit" class="btn" id="registerBtn">Create Account</button>
+            </form>
+            
+            <form id="login-form" class="auth-form" onsubmit="login(event)">
+                <div class="form-group">
+                    <label>User ID</label>
+                    <input type="number" id="loginUserId" placeholder="Enter your user ID" required>
+                </div>
+                <button type="submit" class="btn">Login to Dashboard</button>
+            </form>
+        </div>
+    </div>
 
-        <h2>My Ride History</h2>
-        <button onclick="loadMyRides()">Refresh Ride History</button>
-        <div id="ridesResult"><div style="text-align: center; color: #666;">Click "Refresh" to see your rides</div></div>
+    <!-- Dashboard View -->
+    <div id="dashboard-view" class="dashboard-container" style="display: none;">
+        <div class="dashboard-header">
+            <h2 id="welcome-message">Welcome!</h2>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </div>
+        
+        <div class="dashboard-grid">
+            <div class="panel">
+                <h3>Request a Ride</h3>
+                <div id="rideAlert" class="alert"></div>
+                
+                <form onsubmit="requestRide(event)">
+                    <div class="location-input">
+                        <span class="location-icon">📍</span>
+                        <input type="text" id="source" placeholder="Pickup location" required>
+                    </div>
+                    
+                    <div class="location-input">
+                        <span class="location-icon">🎯</span>
+                        <input type="text" id="destination" placeholder="Drop-off location" required>
+                    </div>
+                    
+                    <button type="submit" class="btn" id="rideBtn">Request Ride</button>
+                </form>
+                
+                <div id="queueDisplay" style="display: none;"></div>
+            </div>
+            
+            <div class="panel">
+                <h3>My Rides</h3>
+                <button onclick="loadMyRides()" class="btn" style="margin-bottom: 15px;">Refresh Rides</button>
+                <div id="myRides">Click refresh to load your rides</div>
+            </div>
+        </div>
     </div>
 
     <script>
-        async function requestRide() {
-            const userId = document.getElementById('userId').value;
-            const source = document.getElementById('source').value;
-            const destination = document.getElementById('destination').value;
-            const rideType = document.getElementById('rideType').value;
-            const statusDiv = document.getElementById('rideStatus');
+        let currentUserId = null;
+        let queueCheckInterval = null;
+        let currentRideId = null;
+        let lastQueuePosition = null;
 
-            if (!userId || !source || !destination) {
-                alert('Please fill in all fields.');
-                return;
+        function switchTab(tab) {
+            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+            
+            if (tab === 'register') {
+                document.querySelectorAll('.auth-tab')[0].classList.add('active');
+                document.getElementById('register-form').classList.add('active');
+            } else {
+                document.querySelectorAll('.auth-tab')[1].classList.add('active');
+                document.getElementById('login-form').classList.add('active');
             }
+        }
+
+        function showAlert(message, type = 'success') {
+            const alert = document.getElementById('rideAlert');
+            alert.textContent = message;
+            alert.className = `alert ${type} show`;
+            setTimeout(() => alert.classList.remove('show'), 5000);
+        }
+
+        async function registerUser(e) {
+            e.preventDefault();
+            const name = document.getElementById('regName').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const phone = document.getElementById('regPhone').value.trim();
+
+            const registerBtn = document.getElementById('registerBtn');
+            registerBtn.disabled = true;
+            registerBtn.textContent = 'Creating Account...';
 
             try {
-                const response = await fetch('/api/user/request-ride', {
+                const response = await fetch('/api/user/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, phone })
+                });
+
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || result.details || 'Registration failed');
+                }
+
+                alert(`Registration successful! Your User ID is ${result.user_id}`);
+                switchTab('login');
+                document.getElementById('loginUserId').value = result.user_id;
+                document.getElementById('regName').value = '';
+                document.getElementById('regEmail').value = '';
+                document.getElementById('regPhone').value = '';
+
+            } catch (error) {
+                alert(`Registration Error: ${error.message}`);
+            } finally {
+                registerBtn.disabled = false;
+                registerBtn.textContent = 'Create Account';
+            }
+        }
+
+        async function login(e) {
+            e.preventDefault();
+            const userId = document.getElementById('loginUserId').value;
+            
+            currentUserId = userId;
+            document.getElementById('auth-view').style.display = 'none';
+            document.getElementById('dashboard-view').style.display = 'block';
+            document.getElementById('welcome-message').textContent = `Welcome, User ${userId}!`;
+            
+            // Load rides on login and check for active queued rides
+            await loadMyRides();
+            await checkForQueuedRides();
+        }
+
+        function logout() {
+            if (queueCheckInterval) {
+                clearInterval(queueCheckInterval);
+            }
+            currentUserId = null;
+            currentRideId = null;
+            lastQueuePosition = null;
+            document.getElementById('auth-view').style.display = 'flex';
+            document.getElementById('dashboard-view').style.display = 'none';
+            document.getElementById('loginUserId').value = '';
+            document.getElementById('source').value = '';
+            document.getElementById('destination').value = '';
+            document.getElementById('queueDisplay').style.display = 'none';
+        }
+
+        async function requestRide(e) {
+            e.preventDefault();
+            const source = document.getElementById('source').value.trim();
+            const destination = document.getElementById('destination').value.trim();
+
+            const rideBtn = document.getElementById('rideBtn');
+            rideBtn.disabled = true;
+            rideBtn.textContent = 'Requesting Ride...';
+
+            try {
+                const response = await fetch('/api/user/request-ride-queue', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        user_id: parseInt(userId),
+                        user_id: parseInt(currentUserId),
                         source_location: source,
-                        dest_location: destination,
-                        ride_type: rideType
+                        dest_location: destination
                     })
                 });
 
                 const result = await response.json();
                 
-                if (response.ok) {
-                    statusDiv.innerHTML = `<div class="status success">✅ ${result.message} (Ride ID: ${result.ride_id})</div>`;
-                    loadMyRides(); // Refresh history
-                } else {
-                    statusDiv.innerHTML = `<div class="status error">❌ ${result.error}: ${result.details || ''}</div>`;
+                if (!response.ok) {
+                    throw new Error(result.error || result.details || 'Ride request failed');
+                }
+
+                showAlert(`Ride requested successfully! Ride ID: ${result.ride_id}`, 'success');
+                
+                // Store current ride ID for queue tracking
+                currentRideId = result.ride_id;
+                lastQueuePosition = result.queue_position;
+                
+                // Display queue information
+                displayQueueInfo(result);
+                
+                // Start checking queue position
+                startQueueCheck(result.ride_id);
+                
+                document.getElementById('source').value = '';
+                document.getElementById('destination').value = '';
+                
+                // Refresh rides list
+                loadMyRides();
+
+            } catch (error) {
+                showAlert(`Ride Request Error: ${error.message}`, 'error');
+            } finally {
+                rideBtn.disabled = false;
+                rideBtn.textContent = 'Request Ride';
+            }
+        }
+
+        function displayQueueInfo(data) {
+            const queueDisplay = document.getElementById('queueDisplay');
+            queueDisplay.innerHTML = `
+                <div class="queue-card">
+                    <div class="position" id="queuePosition">#${data.queue_position}</div>
+                    <div class="label">Your Position in Queue</div>
+                    <div class="queue-info">
+                        <div class="queue-stat">
+                            <div class="number" id="onlineDrivers">${data.online_drivers || 0}</div>
+                            <div class="text">Drivers Online</div>
+                        </div>
+                        <div class="queue-stat">
+                            <div class="number" id="estimatedFare">₹${data.estimated_fare}</div>
+                            <div class="text">Estimated Fare</div>
+                        </div>
+                    </div>
+                    <div class="queue-note">
+                        🔄 Auto-updating every second - Position updates when drivers accept rides
+                    </div>
+                </div>
+            `;
+            queueDisplay.style.display = 'block';
+        }
+
+        function updateQueueDisplay(data) {
+            const positionElement = document.getElementById('queuePosition');
+            const onlineDriversElement = document.getElementById('onlineDrivers');
+            
+            if (positionElement && onlineDriversElement) {
+                // Check if position changed
+                const newPosition = data.queue_position;
+                const currentPosition = parseInt(positionElement.textContent.replace('#', ''));
+                
+                if (newPosition !== currentPosition) {
+                    // Position changed - add animation
+                    positionElement.classList.add('position-updated');
+                    setTimeout(() => positionElement.classList.remove('position-updated'), 500);
+                    
+                    // Show notification if position improved
+                    if (newPosition < currentPosition) {
+                        showAlert(`Your queue position moved up to #${newPosition}!`, 'success');
+                    }
+                }
+                
+                positionElement.textContent = `#${newPosition}`;
+                onlineDriversElement.textContent = data.online_drivers;
+                
+                // Update total waiting if element exists
+                const totalWaitingElement = document.getElementById('totalWaiting');
+                if (totalWaitingElement) {
+                    totalWaitingElement.textContent = data.total_waiting;
+                }
+            }
+        }
+
+    function startQueueCheck(rideId) {
+            // Always clear any previous interval to avoid multiple loops
+            if (queueCheckInterval) clearInterval(queueCheckInterval);
+
+            // Start new polling every 3 seconds
+            queueCheckInterval = setInterval(async () => {
+                try {
+                    // --- FIX: Add cache-busting headers ---
+                    const response = await fetch(`/api/user/queue-position/${rideId}`, {
+                        method: 'GET',
+                        cache: 'no-cache' // Most important fix
+                    });
+
+                    if (!response.ok) {
+                        // If the server returns an error (like 404), stop polling
+                        throw new Error(`Server returned status ${response.status}`);
+                    }
+
+                    const data = await response.json();
+
+                    // --- FIX: Use correct property names from server (with underscores) ---
+                    if (data.success && data.in_queue && data.status === 'requested') {
+                        // Still in queue, update the display
+                        updateQueueDisplay(data);
+                        lastQueuePosition = data.queue_position;
+                    } else {
+                        // Ride has left the queue (accepted, completed, etc.)
+                        clearInterval(queueCheckInterval);
+                        queueCheckInterval = null;
+                        currentRideId = null;
+                        lastQueuePosition = null;
+                        document.getElementById('queueDisplay').style.display = 'none';
+
+                        // Show a specific alert based on the final status
+                        if (data.status === 'accepted') {
+                            showAlert('Your ride has been accepted by a driver!', 'success');
+                        } else if (data.status === 'in_progress') {
+                            showAlert('Your ride is in progress!', 'success');
+                        }
+                        
+                        // --- FIX: Immediately refresh the ride list ---
+                        loadMyRides();
+                    }
+                } catch (error) {
+                    console.error('Error checking queue, stopping poll:', error);
+                    clearInterval(queueCheckInterval); // Stop on error
+                }
+            }, 3000); // Poll every 3 seconds is more reasonable than 1 second
+        }
+
+        
+        // Check for any existing queued rides when logging in
+        async function checkForQueuedRides() {
+            try {
+                const response = await fetch(`/api/user/rides/${currentUserId}`);
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    // Find the most recent requested ride
+                    const requestedRide = data.data.find(ride => ride.status === 'requested');
+                    
+                    if (requestedRide) {
+                        console.log('Found existing queued ride:', requestedRide.id);
+                        currentRideId = requestedRide.id;
+                        
+                        // Get queue position for this ride
+                        const queueResponse = await fetch(`/api/user/queue-position/${requestedRide.id}`);
+                        const queueData = await queueResponse.json();
+                        
+                        if (queueData.success && queueData.in_queue) {
+                            displayQueueInfo({
+                                queue_position: queueData.queue_position,
+                                online_drivers: queueData.online_drivers,
+                                estimated_fare: requestedRide.fare
+                            });
+                            lastQueuePosition = queueData.queue_position;
+                            startQueueCheck(requestedRide.id);
+                            
+                            showAlert('Resumed tracking your ride in queue', 'success');
+                        }
+                    }
                 }
             } catch (error) {
-                statusDiv.innerHTML = `<div class="status error">❌ Network Error: ${error.message}</div>`;
+                console.error('Error checking for queued rides:', error);
             }
         }
 
         async function loadMyRides() {
-            const userId = document.getElementById('userId').value;
-            if (!userId) {
-                alert('Please enter a User ID to see history.');
-                return;
-            }
-            const resultDiv = document.getElementById('ridesResult');
-            resultDiv.innerHTML = '<div style="text-align: center; color: #666;">Loading history...</div>';
-
+            const ridesDiv = document.getElementById('myRides');
+            ridesDiv.innerHTML = '<p style="text-align: center;">Loading...</p>';
+            
             try {
-                const response = await fetch(`/api/user/${userId}/rides`);
-                const result = await response.json();
+                const response = await fetch(`/api/user/rides/${currentUserId}`);
+                const data = await response.json();
                 
-                if (response.ok && result.rides) {
-                    if (result.rides.length === 0) {
-                        resultDiv.innerHTML = '<div style="text-align: center; color: #666;">No rides found for this user.</div>';
-                        return;
-                    }
-                    let html = `<h3>Your Rides (${result.rides.length} found)</h3>`;
-                    result.rides.forEach(ride => {
-                        // --- THIS IS THE FIX ---
-                        const fare = ride.estimated_fare ? `<strong>Est. Fare: ₹${parseFloat(ride.estimated_fare).toFixed(2)}</strong>` : '';
-                        const driver = ride.driver_id ? `| Driver #${ride.driver_id}` : '';
-                        const cancelButton = ride.can_cancel ? `<button class="btn-danger" style="width: auto; padding: 8px 12px; font-size: 12px; margin-top: 10px;" onclick="cancelRide(${ride.id})">Cancel Ride</button>` : '';
-
-                        html += `
-                            <div class="ride">
-                                <strong>Ride #${ride.id}</strong>: ${ride.source_location} → ${ride.dest_location}<br>
-                                <small>Status: ${ride.user_friendly_status} ${driver} | ${new Date(ride.created_at).toLocaleString()}</small><br>
-                                ${fare}
-                                ${cancelButton}
-                            </div>
-                        `;
-                    });
-                    resultDiv.innerHTML = html;
-                } else {
-                    resultDiv.innerHTML = `<div class="status error">❌ ${result.error || 'Failed to load rides.'}</div>`;
+                if (!data.success || !data.data || data.data.length === 0) {
+                    ridesDiv.innerHTML = '<p style="text-align: center; color: #999;">No rides yet</p>';
+                    return;
                 }
-            } catch (error) {
-                resultDiv.innerHTML = `<div class="status error">❌ Network Error: ${error.message}</div>`;
-            }
-        }
-
-        async function cancelRide(rideId) {
-            const userId = document.getElementById('userId').value;
-            if (!userId) {
-                alert('User ID is required to cancel a ride.');
-                return;
-            }
-            if (!confirm('Are you sure you want to cancel this ride?')) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/rides/${rideId}/cancel`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cancelled_by: 'user' })
-                });
-
-                const result = await response.json();
                 
-                if (response.ok) {
-                    alert('✅ Ride cancelled successfully.');
-                    loadMyRides();
-                } else {
-                    alert(`❌ Failed to cancel ride: ${result.details}`);
-                }
+                ridesDiv.innerHTML = data.data.map(ride => `
+                    <div class="ride-card">
+                        <p><span class="status ${ride.status}">${ride.status.replace('_', ' ')}</span></p>
+                        <p><strong>From:</strong> ${ride.source_location}</p>
+                        <p><strong>To:</strong> ${ride.dest_location}</p>
+                        <p><strong>Fare:</strong> ₹${ride.fare}</p>
+                        ${ride.driver_name ? `<p><strong>Driver:</strong> ${ride.driver_name}</p>` : ''}
+                        ${ride.status === 'requested' ? '<p style="color: #667eea; font-size: 12px; margin-top: 8px;">⏳ Waiting in queue...</p>' : ''}
+                    </div>
+                `).join('');
             } catch (error) {
-                alert(`❌ Network Error: ${error.message}`);
+                ridesDiv.innerHTML = '<p style="color: red;">Could not load rides</p>';
+                console.error('Error loading rides:', error);
             }
         }
     </script>
@@ -280,10 +675,62 @@ USER_DASHBOARD_HTML = '''
 </html>
 '''
 
+@app.route('/')
+def home():
+    return render_template_string(USER_DASHBOARD_HTML)
+
+@app.route('/api/user/register', methods=['POST'])
+def proxy_register_user():
+    try:
+        response = requests.post(
+            f'{SERVER_URL}/api/users/register', 
+            json=request.get_json(),
+            timeout=5
+        )
+        return jsonify(response.json()), response.status_code
+    except requests.exceptions.RequestException as e:
+        print(f"Proxy error (register user): {e}")
+        return jsonify({'success': False, 'error': 'Server connection failed'}), 503
+
+@app.route('/api/user/request-ride-queue', methods=['POST'])
+def proxy_request_ride_queue():
+    try:
+        response = requests.post(
+            f'{SERVER_URL}/api/rides/request-with-queue', 
+            json=request.get_json(),
+            timeout=5
+        )
+        return jsonify(response.json()), response.status_code
+    except requests.exceptions.RequestException as e:
+        print(f"Proxy error (request ride): {e}")
+        return jsonify({'success': False, 'error': 'Server connection failed'}), 503
+
+@app.route('/api/user/queue-position/<int:ride_id>', methods=['GET'])
+def proxy_queue_position(ride_id):
+    try:
+        response = requests.get(f'{SERVER_URL}/api/rides/{ride_id}/queue-position', timeout=5)
+        return jsonify(response.json()), response.status_code
+    except requests.exceptions.RequestException as e:
+        print(f"Proxy error (queue position): {e}")
+        return jsonify({'success': False, 'error': 'Server connection failed'}), 503
+
+@app.route('/api/user/rides/<int:user_id>', methods=['GET'])
+def proxy_user_rides(user_id):
+    try:
+        response = requests.get(f'{SERVER_URL}/api/users/{user_id}/rides', timeout=5)
+        return jsonify(response.json()), response.status_code
+    except requests.exceptions.RequestException as e:
+        print(f"Proxy error (user rides): {e}")
+        return jsonify({'success': False, 'error': 'Server connection failed'}), 503
+
 if __name__ == '__main__':
-    print('👥 Mini Uber User Client starting...')
-    print('🌐 User dashboard: http://localhost:5000')
-    print('📡 API endpoints: http://localhost:5000/api/user/*')
-    print(f'🔗 Connecting to server: {SERVER_URL}')
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    port = 5000
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            sys.exit("Error: Invalid port number provided.")
     
+    print(f'User Client running at http://localhost:{port}')
+    print(f'Connecting to server at {SERVER_URL}')
+    app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False)

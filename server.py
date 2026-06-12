@@ -1,14 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
-import psycopg
 from psycopg.rows import dict_row
-import os
+import psycopg
+import random
+import traceback # Import the traceback module for better error logging
 
 app = Flask(__name__)
 CORS(app)
 
-# Database Configuration
+# --- Database Configuration ---
 DB_NAME = "mini_uber_db"
 DB_USER = "postgres"
 DB_PASS = "Laksh@2004"
@@ -16,378 +16,422 @@ DB_HOST = "localhost"
 DB_PORT = "5432"
 
 def get_db_connection():
-    """Establishes a connection to the PostgreSQL database using psycopg3."""
+    """Establishes a robust connection to the PostgreSQL database."""
     try:
-        # psycopg3 connection string format
-        conn = psycopg.connect(
-            f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
+        return psycopg.connect(
+            f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}",
+            autocommit=True
         )
-        return conn
     except psycopg.OperationalError as e:
-        print(f"❌ Database connection failed: {e}")
+        print(f"CRITICAL: Database connection failed: {e}")
         raise
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
+# --- Fare Calculation Logic ---
+def calculate_fare(source, destination):
+    base_fare = 50.0
+    rate_per_km = 12.5
+    simulated_distance = max(1, (len(source) + len(destination)) / 2 + random.uniform(-2, 2))
+    return round(base_fare + (simulated_distance * rate_per_km), 2)
+
+# --- Driver Login Endpoint ---
+@app.route('/api/drivers/<int:driver_id>', methods=['GET'])
+def get_driver_details(driver_id):
+    """Fetches details for a single driver to verify their existence."""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM rides;")
-        ride_count = cur.fetchone()[0]
-        cur.close()
-        conn.close()
-        db_status = f"Connected - {ride_count} rides in system"
-    except Exception as e:
-        db_status = f"Connection failed: {str(e)}"
-    
-    return jsonify({
-        'service': 'Core Server API (psycopg3)',
-        'status': 'running',
-        'database': db_status,
-        'timestamp': datetime.now().isoformat(),
-        'port': 3000
-    })
-
-# ===== USER ENDPOINTS =====
-@app.route('/api/users/rides', methods=['POST'])
-def create_ride_request():
-    """Create a new ride request from user"""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-
-    user_id = data.get('user_id')
-    source_location = data.get('source_location')
-    dest_location = data.get('dest_location')
-    ride_type = data.get('ride_type', 'standard')  # standard, premium, shared
-
-    if not all([user_id, source_location, dest_location]):
-        return jsonify({
-            'error': 'Missing required fields: user_id, source_location, dest_location'
-        }), 400
-
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        cur.execute(
-            """INSERT INTO rides (user_id, source_location, dest_location, ride_type, status) 
-               VALUES (%s, %s, %s, %s, %s) RETURNING id, created_at;""",
-            (int(user_id), source_location, dest_location, ride_type, 'requested')
-        )
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("SELECT id, name FROM drivers WHERE id = %s;", (driver_id,))
+                driver = cur.fetchone()
         
-        ride_id, created_at = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        new_ride = {
-            'id': ride_id,
-            'user_id': int(user_id),
-            'source_location': source_location,
-            'dest_location': dest_location,
-            'ride_type': ride_type,
-            'status': 'requested',
-            'created_at': created_at.isoformat()
-        }
-        
-        print(f'✅ User ride request created: Ride #{ride_id}')
-        return jsonify({
-            'success': True,
-            'message': 'Ride request created successfully',
-            'data': new_ride
-        }), 201
-
+        if driver:
+            return jsonify({'success': True, 'data': driver})
+        else:
+            return jsonify({'success': False, 'error': 'Driver not found'}), 404
     except Exception as e:
-        print(f"❌ Error creating ride: {e}")
-        return jsonify({'error': 'Failed to create ride request', 'details': str(e)}), 500
+        print(f"Error in get_driver_details:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
 
-@app.route('/api/users/<int:user_id>/rides', methods=['GET'])
-def get_user_rides(user_id):
-    """Get all rides for a specific user"""
-    try:
-        conn = get_db_connection()
-        # Use dict_row factory for dictionary-like access
-        cur = conn.cursor(row_factory=dict_row)
-        cur.execute(
-            "SELECT * FROM rides WHERE user_id = %s ORDER BY created_at DESC;", 
-            (user_id,)
-        )
-        rides = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        # Convert datetime objects to ISO format
-        for ride in rides:
-            if ride['created_at']:
-                ride['created_at'] = ride['created_at'].isoformat()
-            if ride.get('updated_at'):
-                ride['updated_at'] = ride['updated_at'].isoformat()
-
-        return jsonify({
-            'success': True,
-            'user_id': user_id,
-            'data': rides
-        })
-    except Exception as e:
-        print(f"❌ Error fetching user rides: {e}")
-        return jsonify({'error': 'Failed to fetch rides', 'details': str(e)}), 500
-
-# ===== DRIVER ENDPOINTS =====
-@app.route('/api/drivers/rides/available', methods=['GET'])
-def get_available_rides():
-    """Get all rides available for drivers to accept"""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(row_factory=dict_row)
-        cur.execute(
-            "SELECT * FROM rides WHERE status IN ('requested', 'pending') ORDER BY created_at ASC;"
-        )
-        rides = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        # Convert datetime objects
-        for ride in rides:
-            if ride['created_at']:
-                ride['created_at'] = ride['created_at'].isoformat()
-            if ride.get('updated_at'):
-                ride['updated_at'] = ride['updated_at'].isoformat()
-
-        return jsonify({
-            'success': True,
-            'message': f'Found {len(rides)} available rides',
-            'data': rides
-        })
-    except Exception as e:
-        print(f"❌ Error fetching available rides: {e}")
-        return jsonify({'error': 'Failed to fetch available rides', 'details': str(e)}), 500
-
-@app.route('/api/drivers/rides/<int:ride_id>/accept', methods=['PUT'])
-def accept_ride(ride_id):
-    """Driver accepts a ride"""
-    data = request.get_json()
-    driver_id = data.get('driver_id') if data else None
-    
-    if not driver_id:
-        return jsonify({'error': 'driver_id is required'}), 400
-
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(row_factory=dict_row)
-        
-        # Check if ride exists and is available
-        cur.execute("SELECT * FROM rides WHERE id = %s;", (ride_id,))
-        ride = cur.fetchone()
-        
-        if not ride:
-            return jsonify({'error': 'Ride not found'}), 404
-            
-        if ride['status'] not in ['requested', 'pending']:
-            return jsonify({'error': 'Ride is not available for acceptance'}), 400
-
-        # Update ride with driver info
-        cur.execute(
-            """UPDATE rides SET driver_id = %s, status = %s, updated_at = CURRENT_TIMESTAMP 
-               WHERE id = %s RETURNING *;""",
-            (int(driver_id), 'accepted', ride_id)
-        )
-        
-        updated_ride = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        # Convert datetime objects
-        if updated_ride['created_at']:
-            updated_ride['created_at'] = updated_ride['created_at'].isoformat()
-        if updated_ride['updated_at']:
-            updated_ride['updated_at'] = updated_ride['updated_at'].isoformat()
-
-        print(f'✅ Driver {driver_id} accepted ride #{ride_id}')
-        return jsonify({
-            'success': True,
-            'message': 'Ride accepted successfully',
-            'data': updated_ride
-        })
-
-    except Exception as e:
-        print(f"❌ Error accepting ride: {e}")
-        return jsonify({'error': 'Failed to accept ride', 'details': str(e)}), 500
-
-@app.route('/api/drivers/<int:driver_id>/rides', methods=['GET'])
-def get_driver_rides(driver_id):
-    """Get all rides assigned to a specific driver"""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(row_factory=dict_row)
-        cur.execute(
-            "SELECT * FROM rides WHERE driver_id = %s ORDER BY created_at DESC;", 
-            (driver_id,)
-        )
-        rides = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        # Convert datetime objects
-        for ride in rides:
-            if ride['created_at']:
-                ride['created_at'] = ride['created_at'].isoformat()
-            if ride.get('updated_at'):
-                ride['updated_at'] = ride['updated_at'].isoformat()
-
-        return jsonify({
-            'success': True,
-            'driver_id': driver_id,
-            'data': rides
-        })
-    except Exception as e:
-        print(f"❌ Error fetching driver rides: {e}")
-        return jsonify({'error': 'Failed to fetch driver rides', 'details': str(e)}), 500
-
-@app.route('/api/drivers/rides/<int:ride_id>/status', methods=['PUT'])
+# --- Ride Lifecycle Endpoint ---
+@app.route('/api/rides/<int:ride_id>/status', methods=['PUT'])
 def update_ride_status(ride_id):
-    """Update ride status (start trip, complete trip, etc.)"""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-
-    new_status = data.get('status')
-    driver_id = data.get('driver_id')
-    
-    valid_statuses = ['accepted', 'in_progress', 'completed', 'cancelled']
-    if new_status not in valid_statuses:
-        return jsonify({'error': f'Invalid status. Must be one of: {valid_statuses}'}), 400
-
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(row_factory=dict_row)
-        
-        # Verify driver owns this ride
-        cur.execute("SELECT * FROM rides WHERE id = %s AND driver_id = %s;", (ride_id, driver_id))
-        ride = cur.fetchone()
-        
-        if not ride:
-            return jsonify({'error': 'Ride not found or not assigned to this driver'}), 404
-
-        # Update status
-        cur.execute(
-            "UPDATE rides SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s RETURNING *;",
-            (new_status, ride_id)
-        )
-        
-        updated_ride = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        # Convert datetime objects
-        if updated_ride['created_at']:
-            updated_ride['created_at'] = updated_ride['created_at'].isoformat()
-        if updated_ride['updated_at']:
-            updated_ride['updated_at'] = updated_ride['updated_at'].isoformat()
-
-        print(f'✅ Ride #{ride_id} status updated to: {new_status}')
-        return jsonify({
-            'success': True,
-            'message': f'Ride status updated to {new_status}',
-            'data': updated_ride
-        })
-
-    except Exception as e:
-        print(f"❌ Error updating ride status: {e}")
-        return jsonify({'error': 'Failed to update ride status', 'details': str(e)}), 500
-    
-    # Add this new endpoint to your server.py file
-
-@app.route('/api/rides/<int:ride_id>/cancel', methods=['PUT'])
-def cancel_ride(ride_id):
-    """
-    Allows a user or driver to cancel a ride.
-    """
     try:
         data = request.get_json()
-        cancelled_by = data.get('cancelled_by', 'system') # Can be 'user' or 'driver'
-
-        conn = get_db_connection()
-        cur = conn.cursor(row_factory=dict_row)
-
-        # First, check the current status of the ride
-        cur.execute("SELECT status FROM rides WHERE id = %s;", (ride_id,))
-        ride = cur.fetchone()
-
-        if not ride:
-            return jsonify({'error': 'Ride not found'}), 404
+        driver_id = data.get('driver_id')
+        new_status = data.get('status')
         
-        # Prevent cancellation if the ride is already completed or cancelled
-        if ride['status'] in ['completed', 'cancelled']:
-            return jsonify({
-                'error': 'Cannot cancel ride',
-                'details': f'Ride is already {ride["status"]}.'
-            }), 400
+        if not all([driver_id, new_status]):
+            return jsonify({'success': False, 'error': 'driver_id and status are required'}), 400
 
-        # Update the ride status to 'cancelled'
-        cur.execute("""
-            UPDATE rides 
-            SET status = 'cancelled', cancelled_by = %s, updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s 
-            RETURNING *;
-        """, (cancelled_by, ride_id))
+        query, params = "", ()
+        if new_status == 'accepted':
+            query = "UPDATE rides SET driver_id = %s, status = 'accepted' WHERE id = %s AND status = 'requested' RETURNING id;"
+            params = (driver_id, ride_id)
+        elif new_status == 'completed':
+            query = "UPDATE rides SET status = 'completed', completed_at = NOW() WHERE id = %s AND driver_id = %s RETURNING id;"
+            params = (ride_id, driver_id)
+        elif new_status == 'in_progress':
+            query = "UPDATE rides SET status = 'in_progress' WHERE id = %s AND driver_id = %s RETURNING id;"
+            params = (ride_id, driver_id)
+        else:
+            return jsonify({'success': False, 'error': 'Invalid status update provided'}), 400
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                result = cur.fetchone()
+                if not result:
+                    return jsonify({'success': False, 'error': 'Ride state change failed. Ride might not be in the correct state or does not exist.'}), 404
         
-        updated_ride = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        print(f"✅ Ride #{ride_id} was cancelled by {cancelled_by}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Ride has been successfully cancelled.',
-            'data': {
-                'id': updated_ride['id'],
-                'status': updated_ride['status'],
-                'cancelled_by': updated_ride['cancelled_by']
-            }
-        })
-
+        print(f"✅ Ride {ride_id} status updated to {new_status} by driver {driver_id}")
+        return jsonify({'success': True, 'message': f'Ride status updated to {new_status}'})
     except Exception as e:
-        print(f"❌ Error cancelling ride: {e}")
-        return jsonify({'error': 'Failed to cancel ride', 'details': str(e)}), 500
+        print(f"Error in update_ride_status:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
 
-# ===== ADMIN ENDPOINTS =====
-@app.route('/api/admin/rides', methods=['GET'])
-def get_all_rides():
-    """Get all rides in the system (admin view)"""
+# --- Driver Summary Endpoint ---
+@app.route('/api/drivers/<int:driver_id>/completed-rides', methods=['GET'])
+def get_completed_rides_today(driver_id):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(row_factory=dict_row)
-        cur.execute("SELECT * FROM rides ORDER BY created_at DESC;")
-        rides = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        # Convert datetime objects
-        for ride in rides:
-            if ride['created_at']:
-                ride['created_at'] = ride['created_at'].isoformat()
-            if ride.get('updated_at'):
-                ride['updated_at'] = ride['updated_at'].isoformat()
-
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT * FROM rides WHERE driver_id = %s AND status = 'completed' "
+                    "AND completed_at >= date_trunc('day', NOW()) ORDER BY completed_at DESC;",
+                    (driver_id,)
+                )
+                rides = cur.fetchall()
+                total_earnings = sum(ride.get('fare') or 0 for ride in rides)
+                
+                for ride in rides:
+                    if ride.get('completed_at'):
+                        ride['completed_at'] = ride['completed_at'].isoformat()
+        
         return jsonify({
             'success': True,
-            'total_rides': len(rides),
+            'summary': {
+                'total_rides': len(rides),
+                'total_earnings': float(total_earnings)
+            },
             'data': rides
         })
     except Exception as e:
-        print(f"❌ Error fetching all rides: {e}")
-        return jsonify({'error': 'Failed to fetch rides', 'details': str(e)}), 500
+        print(f"Error in get_completed_rides_today:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Health Check ---
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    db_status = "Connection failed"
+    ride_count = 0
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM rides;")
+                result = cur.fetchone()
+                if result:
+                    ride_count = result[0]
+                db_status = f"Connected - {ride_count} rides in system"
+    except Exception as e:
+        print(f"Health check error: {e}")
+    
+    return jsonify({
+        'service': 'Core Server API',
+        'status': 'running',
+        'db_status': db_status
+    })
+
+# --- Registration Endpoints ---
+@app.route('/api/users/register', methods=['POST'])
+def register_user():
+    try:
+        data = request.get_json()
+        if not data or not all(k in data for k in ['name', 'email', 'phone']):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (name, email, phone) VALUES (%s, %s, %s) RETURNING id;",
+                    (data['name'], data['email'], data['phone'])
+                )
+                # --- FIX: Safely fetch the result ---
+                result = cur.fetchone()
+                if result:
+                    user_id = result[0]
+                else:
+                    return jsonify({'success': False, 'error': 'Failed to create user'}), 500
+        
+        return jsonify({'success': True, 'user_id': user_id}), 201
+    except Exception as e:
+        print(f"Error in register_user:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+@app.route('/api/drivers/register', methods=['POST'])
+def register_driver():
+    try:
+        data = request.get_json()
+        if not data or not all(k in data for k in ['name', 'email', 'vehicle_details']):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO drivers (name, email, vehicle_details) VALUES (%s, %s, %s) RETURNING id;",
+                    (data['name'], data['email'], data['vehicle_details'])
+                )
+                # --- FIX: Safely fetch the result ---
+                result = cur.fetchone()
+                if result:
+                    driver_id = result[0]
+                else:
+                    return jsonify({'success': False, 'error': 'Failed to create driver'}), 500
+        
+        return jsonify({'success': True, 'driver_id': driver_id}), 201
+    except Exception as e:
+        print(f"Error in register_driver:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Ride Request Endpoint ---
+@app.route('/api/rides/request', methods=['POST'])
+def request_ride():
+    try:
+        data = request.get_json()
+        if not data or not all(k in data for k in ['user_id', 'source_location', 'dest_location']):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        user_id = data['user_id']
+        fare = calculate_fare(data['source_location'], data['dest_location'])
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # --- FIX: Validate user_id exists before inserting ride ---
+                cur.execute("SELECT id FROM users WHERE id = %s;", (user_id,))
+                if not cur.fetchone():
+                    return jsonify({'success': False, 'error': f'User with id {user_id} not found'}), 404
+
+                cur.execute(
+                    "INSERT INTO rides (user_id, source_location, dest_location, status, fare) "
+                    "VALUES (%s, %s, %s, 'requested', %s) RETURNING id;",
+                    (user_id, data['source_location'], data['dest_location'], fare)
+                )
+                # --- FIX: Safely fetch the result ---
+                result = cur.fetchone()
+                if result:
+                    ride_id = result[0]
+                else:
+                    return jsonify({'success': False, 'error': 'Failed to create ride'}), 500
+        
+        return jsonify({'success': True, 'ride_id': ride_id, 'estimated_fare': fare}), 201
+    except Exception as e:
+        print(f"Error in request_ride:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Ride Request with Queue Info ---
+@app.route('/api/rides/request-with-queue', methods=['POST'])
+def request_ride_with_queue():
+    """Request a ride and get immediate queue information"""
+    try:
+        data = request.get_json()
+        if not data or not all(k in data for k in ['user_id', 'source_location', 'dest_location']):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        user_id = data['user_id']
+        fare = calculate_fare(data['source_location'], data['dest_location'])
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # --- FIX: Validate user_id exists before inserting ride ---
+                cur.execute("SELECT id FROM users WHERE id = %s;", (user_id,))
+                if not cur.fetchone():
+                    return jsonify({'success': False, 'error': f'User with id {user_id} not found'}), 404
+
+                # Insert the ride
+                cur.execute(
+                    "INSERT INTO rides (user_id, source_location, dest_location, status, fare) "
+                    "VALUES (%s, %s, %s, 'requested', %s) RETURNING id, created_at;",
+                    (user_id, data['source_location'], data['dest_location'], fare)
+                )
+                result = cur.fetchone()
+                if not result:
+                    return jsonify({'success': False, 'error': 'Failed to create ride'}), 500
+
+                ride_id = result[0]
+                created_at = result[1]
+                
+                # Get queue position - count all requested rides created before or at same time
+                cur.execute("SELECT COUNT(*) FROM rides WHERE status = 'requested' AND created_at <= %s;", (created_at,))
+                queue_position_result = cur.fetchone()
+                queue_position = queue_position_result[0] if queue_position_result else 1
+                
+                # Get online drivers
+                cur.execute("SELECT COUNT(*) FROM drivers WHERE online_status = 'online'")
+                online_drivers_result = cur.fetchone()
+                online_drivers = online_drivers_result[0] if online_drivers_result else 0
+        
+        print(f"🎫 New ride #{ride_id} created - Queue position: {queue_position}, Online drivers: {online_drivers}")
+        
+        return jsonify({
+            'success': True,
+            'ride_id': ride_id,
+            'estimated_fare': fare,
+            'queue_position': queue_position,
+            'online_drivers': online_drivers
+        }), 201
+    except Exception as e:
+        print(f"Error in request_ride_with_queue:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Get Queue Position ---
+@app.route('/api/rides/<int:ride_id>/queue-position', methods=['GET'])
+def get_queue_position(ride_id):
+    """Get the position of a ride in the queue - REAL-TIME UPDATE"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # First check if ride exists and get its status
+                cur.execute("SELECT id, status, created_at FROM rides WHERE id = %s", (ride_id,))
+                ride = cur.fetchone()
+                
+                if not ride:
+                    return jsonify({'success': False, 'error': 'Ride not found'}), 404
+                
+                if ride['status'] != 'requested':
+                    print(f"📍 Ride {ride_id} status: {ride['status']} (not in queue)")
+                    return jsonify({'success': True, 'status': ride['status'], 'in_queue': False})
+                
+                # --- FIX: Safely fetch COUNT results ---
+                cur.execute("SELECT COUNT(*) FROM rides WHERE status = 'requested' AND created_at < %s", (ride['created_at'],))
+                rides_before_result = cur.fetchone()
+                rides_before = rides_before_result['count'] if rides_before_result else 0
+                
+                queue_position = rides_before + 1
+                
+                cur.execute("SELECT COUNT(*) FROM rides WHERE status = 'requested'")
+                total_waiting_result = cur.fetchone()
+                total_waiting = total_waiting_result['count'] if total_waiting_result else 0
+                
+                cur.execute("SELECT COUNT(*) FROM drivers WHERE online_status = 'online'")
+                online_drivers_result = cur.fetchone()
+                online_drivers = online_drivers_result['count'] if online_drivers_result else 0
+                
+                print(f"📊 Ride {ride_id} - Position: {queue_position}/{total_waiting}, Drivers: {online_drivers}")
+                
+                return jsonify({
+                    'success': True,
+                    'queue_position': queue_position,
+                    'total_waiting': total_waiting,
+                    'online_drivers': online_drivers,
+                    'in_queue': True,
+                    'status': 'requested'
+                })
+    except Exception as e:
+        print(f"Error in get_queue_position:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Get All Rides for a User ---
+@app.route('/api/users/<int:user_id>/rides', methods=['GET'])
+def get_user_rides(user_id):
+    """Get all rides for a user"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT r.*, d.name as driver_name 
+                    FROM rides r
+                    LEFT JOIN drivers d ON r.driver_id = d.id
+                    WHERE r.user_id = %s 
+                    ORDER BY r.created_at DESC
+                """, (user_id,))
+                rides = cur.fetchall()
+                
+                for ride in rides:
+                    if ride.get('created_at'):
+                        ride['created_at'] = ride['created_at'].isoformat()
+                    if ride.get('completed_at'):
+                        ride['completed_at'] = ride['completed_at'].isoformat()
+                
+                return jsonify({'success': True, 'data': rides})
+    except Exception as e:
+        print(f"Error in get_user_rides:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Available Rides Endpoint ---
+@app.route('/api/rides/available', methods=['GET'])
+def get_available_rides():
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("SELECT * FROM rides WHERE status = 'requested' ORDER BY created_at ASC;")
+                rides = cur.fetchall()
+                
+                for r in rides:
+                    if r.get('created_at'):
+                        r['created_at'] = r['created_at'].isoformat()
+        
+        print(f"📋 Available rides in queue: {len(rides)}")
+        return jsonify({'success': True, 'data': rides})
+    except Exception as e:
+        print(f"Error in get_available_rides:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Active Ride Endpoint ---
+@app.route('/api/drivers/<int:driver_id>/active-ride', methods=['GET'])
+def get_active_ride(driver_id):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT * FROM rides WHERE driver_id = %s AND status IN ('accepted', 'in_progress');",
+                    (driver_id,)
+                )
+                ride = cur.fetchone()
+                
+                if ride and ride.get('created_at'):
+                    ride['created_at'] = ride['created_at'].isoformat()
+        
+        return jsonify({'success': True, 'data': ride})
+    except Exception as e:
+        print(f"Error in get_active_ride:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
+
+# --- Driver Status Endpoint ---
+@app.route('/api/drivers/<int:driver_id>/status', methods=['PUT'])
+def update_driver_status(driver_id):
+    try:
+        data = request.get_json()
+        new_status = data.get('status')
+        
+        if not new_status:
+            return jsonify({'success': False, 'error': 'Status is required'}), 400
+        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE drivers SET online_status = %s WHERE id = %s;", (new_status, driver_id))
+        
+        print(f"🚗 Driver {driver_id} is now {new_status}")
+        return jsonify({'success': True, 'message': f'Driver is now {new_status}.'})
+    except Exception as e:
+        print(f"Error in update_driver_status:")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Database error', 'details': str(e)}), 500
 
 if __name__ == '__main__':
-    print('🚗 Mini Uber Core Server API starting (psycopg3)...')
-    print('📡 Endpoints available at: http://localhost:3000')
-    print('👥 User endpoints: /api/users/*')
-    print('🚕 Driver endpoints: /api/drivers/*') 
-    print('🔧 Admin endpoints: /api/admin/*')
-    print('🏥 Health check: /api/health')
+    print('=' * 60)
+    print('🚗 Mini Uber Core Server')
+    print('=' * 60)
+    print('Server starting at: http://localhost:3000')
+    print('Queue system: First-In-First-Out (FIFO)')
+    print('Real-time updates: Enabled')
+    print('=' * 60)
     app.run(host='0.0.0.0', port=3000, debug=True)
