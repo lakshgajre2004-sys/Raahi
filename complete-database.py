@@ -5,7 +5,7 @@ import sys
 # --- Database Configuration ---
 DB_NAME = "mini_uber_db"
 DB_USER = "postgres"
-DB_PASS = "Laksh@2004"
+DB_PASS = "Samehada@1234"
 DB_HOST = "localhost"
 DB_PORT = "5432"
 
