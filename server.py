@@ -13,14 +13,18 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Database Configuration ---
-DB_NAME = "miniuberdb"
-DB_USER = "postgres"
-DB_PASS = "Samehada@1234"
-DB_HOST = "localhost"
-DB_PORT = "5432"
+import os
+from urllib.parse import urlparse
+
+_url = urlparse(os.environ.get('DATABASE_URL', ''))
+DB_NAME = _url.path.lstrip('/')
+DB_USER = _url.username
+DB_PASS = _url.password
+DB_HOST = _url.hostname
+DB_PORT = str(_url.port)
 
 # Construct the connection string once
-DB_CONN_STR = f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}"
+DB_CONN_STR = f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME} sslmode=require"
 
 # --- CREATE CONNECTION POOL (Global) ---
 # min_size=4: Always keep 4 connections open and ready
