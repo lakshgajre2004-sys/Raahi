@@ -14,7 +14,7 @@ DB_PORT = str(_url.port)
 
 def create_database():
     try:
-        conn = psycopg.connect(f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname=postgres", autocommit=True)
+        conn = psycopg.connect(f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname=postgres", autocommit=True, prepare_threshold=0)
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DB_NAME,))
         if not cur.fetchone():
@@ -30,7 +30,7 @@ def create_database():
         return False
 
 def get_db_connection():
-    return psycopg.connect(f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}", autocommit=True)
+    return psycopg.connect(f"user={DB_USER} password={DB_PASS} host={DB_HOST} port={DB_PORT} dbname={DB_NAME}", autocommit=True, prepare_threshold=0)
 
 def setup_schema_and_data():
     # --- FIX: Added 'ride_skips' to the drop list ---
