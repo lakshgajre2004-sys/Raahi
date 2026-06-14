@@ -16,19 +16,23 @@ CORS(app)
 def home():
     return '''
     <html>
-    <head><title>Raahi - Mini Uber</title></head>
-    <body style="font-family:sans-serif;text-align:center;padding:50px;background:#1a1a2e;color:white">
+    <head>
+        <title>Raahi - Mini Uber</title>
+        <style>
+            body { font-family: sans-serif; text-align: center; padding: 50px; background: #1a1a2e; color: white; }
+            .btn { display: inline-block; margin: 20px; padding: 20px 40px; border-radius: 12px; text-decoration: none; font-size: 20px; font-weight: bold; }
+            .user-btn { background: #00d4ff; color: #1a1a2e; }
+            .driver-btn { background: #ff6b35; color: white; }
+        </style>
+    </head>
+    <body>
         <h1>🚗 Raahi - Mini Uber Clone</h1>
         <p>A ride-hailing system built with Python, Flask and PostgreSQL</p>
-        <h3>Features:</h3>
-        <p>🧑 User ride booking</p>
-        <p>🚘 Driver management</p>
-        <p>⚖️ Load balancer across 3 servers</p>
-        <p>🎟️ Event booking with ride integration</p>
-        <p>📊 Real-time server dashboard</p>
         <br>
-        <a href="https://github.com/lakshgajre2004-sys/Raahi" 
-           style="color:#00d4ff;font-size:18px">View on GitHub ↗</a>
+        <a href="https://raahi-user.onrender.com" class="btn user-btn">👤 User Portal</a>
+        <a href="https://raahi-driver.onrender.com" class="btn driver-btn">🚘 Driver Portal</a>
+        <br><br>
+        <a href="https://github.com/lakshgajre2004-sys/Raahi" style="color:#00d4ff">View on GitHub ↗</a>
     </body>
     </html>
     '''
