@@ -2,11 +2,15 @@ import psycopg
 from psycopg import sql
 import sys
 
-DB_NAME = "miniuberdb"
-DB_USER = "postgres"
-DB_PASS = "Laksh@2004"
-DB_HOST = "localhost"
-DB_PORT = "5432"
+import os
+from urllib.parse import urlparse
+
+_url = urlparse(os.environ.get('DATABASE_URL', ''))
+DB_NAME = _url.path.lstrip('/')
+DB_USER = _url.username
+DB_PASS = _url.password
+DB_HOST = _url.hostname
+DB_PORT = str(_url.port)
 
 def create_database():
     try:
