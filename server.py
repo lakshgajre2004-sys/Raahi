@@ -12,6 +12,27 @@ import traceback
 app = Flask(__name__)
 CORS(app)
 
+@app.route('/')
+def home():
+    return '''
+    <html>
+    <head><title>Raahi - Mini Uber</title></head>
+    <body style="font-family:sans-serif;text-align:center;padding:50px;background:#1a1a2e;color:white">
+        <h1>🚗 Raahi - Mini Uber Clone</h1>
+        <p>A ride-hailing system built with Python, Flask and PostgreSQL</p>
+        <h3>Features:</h3>
+        <p>🧑 User ride booking</p>
+        <p>🚘 Driver management</p>
+        <p>⚖️ Load balancer across 3 servers</p>
+        <p>🎟️ Event booking with ride integration</p>
+        <p>📊 Real-time server dashboard</p>
+        <br>
+        <a href="https://github.com/lakshgajre2004-sys/Raahi" 
+           style="color:#00d4ff;font-size:18px">View on GitHub ↗</a>
+    </body>
+    </html>
+    '''
+
 # --- Database Configuration ---
 import os
 from urllib.parse import urlparse
