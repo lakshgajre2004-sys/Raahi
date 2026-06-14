@@ -6,7 +6,8 @@ import sys
 app = Flask(__name__)
 CORS(app)
 
-SERVER_URL = 'http://localhost:8090'
+import os
+SERVER_URL = os.environ.get('RAAHI_SERVER_URL', 'http://localhost:8090')
 
 DRIVER_DASHBOARD_HTML = '''
 <!DOCTYPE html>
